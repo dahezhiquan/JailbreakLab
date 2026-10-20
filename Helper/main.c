@@ -9,6 +9,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <sys/mount.h>
 #include <sys/types.h>
 #include <unistd.h>
 
@@ -370,6 +371,24 @@ static bool directory_is_owned(int directory) {
     return owned;
 }
 
+static bool verify_directory_write(int directory) {
+    const char *probe_name = ".jailbreaklab-write-probe";
+    int probe = openat(
+        directory, probe_name,
+        O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0600
+    );
+    if (probe < 0) return false;
+
+    bool content_written = write_all(probe, kFileSignature, strlen(kFileSignature)) &&
+        fsync(probe) == 0;
+    int saved = errno;
+    close(probe);
+    bool removed = unlinkat(directory, probe_name, 0) == 0;
+    if (!removed) saved = errno;
+    errno = saved;
+    return content_written && removed;
+}
+
 static bool dry_run_can_create(const char *path, char *message, size_t capacity) {
     if (!valid_absolute_path(path)) {
         errno = EINVAL;
@@ -699,6 +718,134 @@ static void prune_owned_ancestors(const char *path) {
     }
 }
 
+static void configure_restricted_write(
+    const char *effective_path,
+    bool enable,
+    bool remove_when_disabled,
+    bool dry_run
+) {
+    if (dry_run) {
+        emit_result(
+            "/jb", effective_path, "planned",
+            enable ? "would make owned /jb directory writable" : "would restore owned /jb permissions"
+        );
+        return;
+    }
+
+    char message[1024];
+    if (enable && !create_marker_directory(effective_path, false, message, sizeof(message))) {
+        if (errno != EEXIST) {
+            emit_result("/jb", effective_path, "failed", message);
+            return;
+        }
+    }
+
+    char leaf[NAME_MAX + 1];
+    int parent = open_parent_directory(effective_path, leaf, sizeof(leaf), false);
+    if (parent < 0) {
+        if (!enable && errno == ENOENT) {
+            emit_result("/jb", effective_path, "absent", "owned writable directory is already absent");
+        } else {
+            snprintf(message, sizeof(message), "cannot open parent: %s", strerror(errno));
+            emit_result("/jb", effective_path, "failed", message);
+        }
+        return;
+    }
+
+    int directory = openat(parent, leaf, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+    int saved = errno;
+    close(parent);
+    errno = saved;
+    if (directory < 0) {
+        snprintf(message, sizeof(message), "cannot open /jb: %s", strerror(errno));
+        emit_result("/jb", effective_path, "failed", message);
+        return;
+    }
+    if (!directory_is_owned(directory)) {
+        struct stat information;
+        bool world_writable = fstat(directory, &information) == 0 &&
+            (information.st_mode & S_IWOTH) != 0;
+        bool write_verified = enable && world_writable && verify_directory_write(directory);
+        int verification_error = errno;
+        close(directory);
+        if (write_verified || !enable) {
+            emit_result(
+                "/jb", effective_path, "already_present",
+                enable
+                    ? "existing /jb write probe succeeded and permissions were not modified"
+                    : "existing /jb is not owned by Jailbreak Lab and was not modified"
+            );
+        } else if (enable && world_writable) {
+            errno = verification_error;
+            snprintf(message, sizeof(message), "write probe failed: %s", strerror(errno));
+            emit_result("/jb", effective_path, "failed", message);
+        } else {
+            emit_result("/jb", effective_path, "protected", "existing /jb is not owned by Jailbreak Lab");
+        }
+        return;
+    }
+
+    mode_t mode = enable ? 01777 : 0755;
+    if (fchmod(directory, mode) != 0) {
+        snprintf(message, sizeof(message), "permission change failed: %s", strerror(errno));
+        close(directory);
+        emit_result("/jb", effective_path, "failed", message);
+        return;
+    }
+
+    if (enable) {
+        if (!verify_directory_write(directory)) {
+            int probe_error = errno;
+            fchmod(directory, 0755);
+            close(directory);
+            errno = probe_error;
+            snprintf(message, sizeof(message), "write probe failed: %s", strerror(errno));
+            emit_result("/jb", effective_path, "failed", message);
+            return;
+        }
+    }
+    close(directory);
+
+    if (enable) {
+        emit_result("/jb", effective_path, "created", "write probe succeeded; owned /jb uses mode 1777");
+        return;
+    }
+
+    if (!remove_when_disabled) {
+        emit_result("/jb", effective_path, "removed", "owned /jb write permission restored to mode 0755");
+        return;
+    }
+
+    bool removed = remove_marker_directory(effective_path, false, message, sizeof(message));
+    if (removed) {
+        prune_owned_ancestors(effective_path);
+        emit_result("/jb", effective_path, "removed", "owned writable /jb directory removed");
+    } else if (errno == ENOTEMPTY) {
+        emit_result(
+            "/jb", effective_path, "removed",
+            "write permission restored; owned /jb retained because it contains other files"
+        );
+    } else if (errno == ENOENT) {
+        emit_result("/jb", effective_path, "absent", "owned writable directory is already absent");
+    } else {
+        emit_result("/jb", effective_path, errno == EPERM ? "protected" : "failed", message);
+    }
+}
+
+static void emit_root_filesystem_status(void) {
+    struct statfs filesystem;
+    if (statfs("/", &filesystem) != 0) {
+        emit_result("/", "/", "failed", "cannot determine whether root filesystem is read-only");
+        return;
+    }
+    emit_result(
+        "/", "/", "already_present",
+        (filesystem.f_flags & MNT_RDONLY) != 0
+            ? "root filesystem is read-only"
+            : "root filesystem is writable"
+    );
+}
+
 static void probe_artifact(const artifact_t *artifact, const char *effective_path) {
     struct stat information;
     int result = lstat(effective_path, &information);
@@ -763,7 +910,10 @@ static bool parse_options(int argument_count, char **arguments, options_t *optio
     bool operation_valid = options->operation != NULL &&
         (strcmp(options->operation, "probe") == 0 ||
          strcmp(options->operation, "apply") == 0 ||
-         strcmp(options->operation, "cleanup") == 0);
+         strcmp(options->operation, "cleanup") == 0 ||
+         strcmp(options->operation, "enable-write") == 0 ||
+         strcmp(options->operation, "disable-write") == 0 ||
+         strcmp(options->operation, "disable-write-remove") == 0);
     bool root_mode_valid = options->root_mode != NULL &&
         (strcmp(options->root_mode, "auto") == 0 ||
          strcmp(options->root_mode, "rootful") == 0 ||
@@ -812,6 +962,24 @@ int main(int argument_count, char **arguments) {
     if (!options.dry_run && strcmp(options.operation, "probe") != 0 && !caller_is_expected_app()) {
         fprintf(stderr, "live filesystem operations require the Jailbreak Lab app as direct caller\n");
         return 77;
+    }
+
+    if (strcmp(options.operation, "enable-write") == 0 ||
+        strcmp(options.operation, "disable-write") == 0 ||
+        strcmp(options.operation, "disable-write-remove") == 0) {
+        emit_root_filesystem_status();
+        char effective_path[MAX_PATH_LENGTH];
+        if (!effective_path_for("/jb", options.root_mode, effective_path, sizeof(effective_path))) {
+            emit_result("/jb", "/jb", "failed", "effective path is unavailable or too long");
+            return 0;
+        }
+        configure_restricted_write(
+            effective_path,
+            strcmp(options.operation, "enable-write") == 0,
+            strcmp(options.operation, "disable-write-remove") == 0,
+            options.dry_run
+        );
+        return 0;
     }
 
     for (size_t index = 0; index < ARRAY_COUNT(kArtifacts); index++) {

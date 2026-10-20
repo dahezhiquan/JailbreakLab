@@ -55,6 +55,34 @@ int main(void) {
     assert(unlink(linked_directory) == 0);
     assert(rmdir(real_directory) == 0);
     assert(unlink(existing_path) == 0);
+
+    char restricted_path[MAX_PATH_LENGTH];
+    snprintf(restricted_path, sizeof(restricted_path), "%s/jb", root);
+    configure_restricted_write(restricted_path, true, false, false);
+    assert(stat(restricted_path, &information) == 0);
+    assert((information.st_mode & 01777) == 01777);
+    configure_restricted_write(restricted_path, false, false, false);
+    assert(stat(restricted_path, &information) == 0);
+    assert((information.st_mode & 0777) == 0755);
+    configure_restricted_write(restricted_path, true, false, false);
+    configure_restricted_write(restricted_path, false, true, false);
+    assert(lstat(restricted_path, &information) != 0 && errno == ENOENT);
+
+    assert(mkdir(restricted_path, 0700) == 0);
+    assert(chmod(restricted_path, 0777) == 0);
+    configure_restricted_write(restricted_path, true, false, false);
+    assert(stat(restricted_path, &information) == 0);
+    assert((information.st_mode & 0777) == 0777);
+    char ownership_marker[MAX_PATH_LENGTH];
+    snprintf(
+        ownership_marker, sizeof(ownership_marker),
+        "%s/%s", restricted_path, kDirectoryMarker
+    );
+    assert(lstat(ownership_marker, &information) != 0 && errno == ENOENT);
+    configure_restricted_write(restricted_path, false, true, false);
+    assert(stat(restricted_path, &information) == 0);
+    assert(rmdir(restricted_path) == 0);
+
     assert(rmdir(root) == 0);
     puts("helper filesystem tests passed");
     return 0;

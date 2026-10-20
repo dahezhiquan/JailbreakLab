@@ -6,7 +6,8 @@ final class SimulationStoreTests: XCTestCase {
     func testStoreStartsIdleWithAStatusMessage() {
         let store = SimulationStore()
         XCTAssertFalse(store.isRunning)
-        XCTAssertFalse(store.statusMessage.isEmpty)
+        XCTAssertFalse(store.suspiciousFilesStatus.isEmpty)
+        XCTAssertFalse(store.restrictedWriteStatus.isEmpty)
     }
 
     func testSingleSwitchCoversEveryArtifactGroup() {

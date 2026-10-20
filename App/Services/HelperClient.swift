@@ -5,6 +5,7 @@ enum HelperClientError: LocalizedError {
     case unavailable
     case executionFailed(Int32)
     case invalidOutput
+    case operationRejected(String)
 
     var errorDescription: String? {
         switch self {
@@ -14,6 +15,8 @@ enum HelperClientError: LocalizedError {
             "helper 执行失败（错误码 \(code)）。"
         case .invalidOutput:
             "helper 返回了无法解析的结果。"
+        case .operationRejected(let message):
+            "操作被拒绝：\(message)"
         }
     }
 }
