@@ -1,0 +1,113 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {};
+	objectVersion = 56;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		A10000000000000000000001 /* JailbreakLabApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000001 /* JailbreakLabApp.swift */; };
+		A10000000000000000000002 /* DetectionArtifact.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000002 /* DetectionArtifact.swift */; };
+		A10000000000000000000003 /* HelperClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000003 /* HelperClient.swift */; };
+		A10000000000000000000004 /* SimulationStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000004 /* SimulationStore.swift */; };
+		A10000000000000000000005 /* DashboardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000005 /* DashboardView.swift */; };
+		A10000000000000000000006 /* ArtifactCatalogView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000006 /* ArtifactCatalogView.swift */; };
+		A10000000000000000000007 /* ResultListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000007 /* ResultListView.swift */; };
+		A10000000000000000000008 /* HelperBridge.c in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000008 /* HelperBridge.c */; settings = {COMPILER_FLAGS = "-Wall -Wextra"; }; };
+		A10000000000000000000009 /* ArtifactCatalogTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000009 /* ArtifactCatalogTests.swift */; };
+		A1000000000000000000000A /* SimulationStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000000A /* SimulationStoreTests.swift */; };
+		A1000000000000000000000B /* XCTest.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A2000000000000000000000F /* XCTest.framework */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		A30000000000000000000001 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = A80000000000000000000001 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = A70000000000000000000001;
+			remoteInfo = JailbreakLab;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXFileReference section */
+		A20000000000000000000001 /* JailbreakLabApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JailbreakLabApp.swift; sourceTree = "<group>"; };
+		A20000000000000000000002 /* DetectionArtifact.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DetectionArtifact.swift; sourceTree = "<group>"; };
+		A20000000000000000000003 /* HelperClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HelperClient.swift; sourceTree = "<group>"; };
+		A20000000000000000000004 /* SimulationStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SimulationStore.swift; sourceTree = "<group>"; };
+		A20000000000000000000005 /* DashboardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DashboardView.swift; sourceTree = "<group>"; };
+		A20000000000000000000006 /* ArtifactCatalogView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArtifactCatalogView.swift; sourceTree = "<group>"; };
+		A20000000000000000000007 /* ResultListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResultListView.swift; sourceTree = "<group>"; };
+		A20000000000000000000008 /* HelperBridge.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = HelperBridge.c; sourceTree = "<group>"; };
+		A20000000000000000000009 /* ArtifactCatalogTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArtifactCatalogTests.swift; sourceTree = "<group>"; };
+		A2000000000000000000000A /* SimulationStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SimulationStoreTests.swift; sourceTree = "<group>"; };
+		A2000000000000000000000B /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		A2000000000000000000000C /* JailbreakLab.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = JailbreakLab.entitlements; sourceTree = "<group>"; };
+		A2000000000000000000000D /* JailbreakLab-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "JailbreakLab-Bridging-Header.h"; sourceTree = "<group>"; };
+		A2000000000000000000000E /* HelperBridge.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = HelperBridge.h; sourceTree = "<group>"; };
+		A2000000000000000000000F /* XCTest.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = XCTest.framework; path = System/Library/Frameworks/XCTest.framework; sourceTree = SDKROOT; };
+		A20000000000000000000010 /* JailbreakLab.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = JailbreakLab.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		A20000000000000000000011 /* JailbreakLabTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = JailbreakLabTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		A40000000000000000000001 /* Frameworks */ = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
+		A40000000000000000000002 /* Frameworks */ = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (A1000000000000000000000B /* XCTest.framework in Frameworks */,); runOnlyForDeploymentPostprocessing = 0; };
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		A50000000000000000000001 = {
+			isa = PBXGroup;
+			children = (A50000000000000000000002 /* App */, A50000000000000000000007 /* Shared */, A50000000000000000000008 /* Tests */, A50000000000000000000009 /* Frameworks */, A5000000000000000000000A /* Products */);
+			sourceTree = "<group>";
+		};
+		A50000000000000000000002 /* App */ = {isa = PBXGroup; path = App; sourceTree = "<group>"; children = (A20000000000000000000001, A50000000000000000000003, A50000000000000000000004, A50000000000000000000005, A50000000000000000000006); };
+		A50000000000000000000003 /* Models */ = {isa = PBXGroup; path = Models; sourceTree = "<group>"; children = (A20000000000000000000002,); };
+		A50000000000000000000004 /* Services */ = {isa = PBXGroup; path = Services; sourceTree = "<group>"; children = (A20000000000000000000003, A20000000000000000000004,); };
+		A50000000000000000000005 /* Views */ = {isa = PBXGroup; path = Views; sourceTree = "<group>"; children = (A20000000000000000000005, A20000000000000000000006, A20000000000000000000007,); };
+		A50000000000000000000006 /* Resources */ = {isa = PBXGroup; path = Resources; sourceTree = "<group>"; children = (A2000000000000000000000B, A2000000000000000000000C, A2000000000000000000000D,); };
+		A50000000000000000000007 /* Shared */ = {isa = PBXGroup; path = Shared; sourceTree = "<group>"; children = (A20000000000000000000008, A2000000000000000000000E,); };
+		A50000000000000000000008 /* Tests */ = {isa = PBXGroup; path = Tests; sourceTree = "<group>"; children = (A20000000000000000000009, A2000000000000000000000A,); };
+		A50000000000000000000009 /* Frameworks */ = {isa = PBXGroup; children = (A2000000000000000000000F,); name = Frameworks; sourceTree = "<group>"; };
+		A5000000000000000000000A /* Products */ = {isa = PBXGroup; children = (A20000000000000000000010, A20000000000000000000011,); name = Products; sourceTree = "<group>"; };
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		A70000000000000000000001 /* JailbreakLab */ = {isa = PBXNativeTarget; buildConfigurationList = AA0000000000000000000001; buildPhases = (A60000000000000000000001, A40000000000000000000001, A60000000000000000000002,); buildRules = (); dependencies = (); name = JailbreakLab; productName = JailbreakLab; productReference = A20000000000000000000010; productType = "com.apple.product-type.application"; };
+		A70000000000000000000002 /* JailbreakLabTests */ = {isa = PBXNativeTarget; buildConfigurationList = AA0000000000000000000002; buildPhases = (A60000000000000000000003, A40000000000000000000002, A60000000000000000000004,); buildRules = (); dependencies = (A90000000000000000000001,); name = JailbreakLabTests; productName = JailbreakLabTests; productReference = A20000000000000000000011; productType = "com.apple.product-type.bundle.unit-test"; };
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		A80000000000000000000001 /* Project object */ = {isa = PBXProject; attributes = {BuildIndependentTargetsInParallel = 1; LastSwiftUpdateCheck = 2600; LastUpgradeCheck = 2600; TargetAttributes = {A70000000000000000000001 = {CreatedOnToolsVersion = 26.0;}; A70000000000000000000002 = {CreatedOnToolsVersion = 26.0; TestTargetID = A70000000000000000000001;};};}; buildConfigurationList = AA0000000000000000000000; compatibilityVersion = "Xcode 14.0"; developmentRegion = en; hasScannedForEncodings = 0; knownRegions = (en, Base); mainGroup = A50000000000000000000001; productRefGroup = A5000000000000000000000A; projectDirPath = ""; projectRoot = ""; targets = (A70000000000000000000001, A70000000000000000000002,); };
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		A60000000000000000000002 /* Resources */ = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
+		A60000000000000000000004 /* Resources */ = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		A60000000000000000000001 /* Sources */ = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (A10000000000000000000001, A10000000000000000000002, A10000000000000000000003, A10000000000000000000004, A10000000000000000000005, A10000000000000000000006, A10000000000000000000007, A10000000000000000000008,); runOnlyForDeploymentPostprocessing = 0; };
+		A60000000000000000000003 /* Sources */ = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (A10000000000000000000009, A1000000000000000000000A,); runOnlyForDeploymentPostprocessing = 0; };
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		A90000000000000000000001 /* PBXTargetDependency */ = {isa = PBXTargetDependency; target = A70000000000000000000001; targetProxy = A30000000000000000000001; };
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		AB0000000000000000000001 /* Debug */ = {isa = XCBuildConfiguration; buildSettings = {CLANG_ENABLE_MODULES = YES; IPHONEOS_DEPLOYMENT_TARGET = 16.0; SDKROOT = iphoneos; SWIFT_VERSION = 6.0;}; name = Debug; };
+		AB0000000000000000000002 /* Release */ = {isa = XCBuildConfiguration; buildSettings = {CLANG_ENABLE_MODULES = YES; IPHONEOS_DEPLOYMENT_TARGET = 16.0; SDKROOT = iphoneos; SWIFT_COMPILATION_MODE = wholemodule; SWIFT_VERSION = 6.0;}; name = Release; };
+		AB0000000000000000000003 /* Debug */ = {isa = XCBuildConfiguration; buildSettings = {CODE_SIGN_ENTITLEMENTS = App/Resources/JailbreakLab.entitlements; CODE_SIGN_IDENTITY = ""; CODE_SIGN_STYLE = Manual; DEVELOPMENT_TEAM = ""; ENABLE_PREVIEWS = YES; GENERATE_INFOPLIST_FILE = NO; INFOPLIST_FILE = App/Resources/Info.plist; PRODUCT_BUNDLE_IDENTIFIER = com.securitylab.jailbreaklab; PRODUCT_NAME = "$(TARGET_NAME)"; SUPPORTED_PLATFORMS = "iphoneos iphonesimulator"; SUPPORTS_MACCATALYST = NO; SWIFT_OBJC_BRIDGING_HEADER = "App/Resources/JailbreakLab-Bridging-Header.h"; TARGETED_DEVICE_FAMILY = 1;}; name = Debug; };
+		AB0000000000000000000004 /* Release */ = {isa = XCBuildConfiguration; buildSettings = {CODE_SIGN_ENTITLEMENTS = App/Resources/JailbreakLab.entitlements; CODE_SIGN_IDENTITY = ""; CODE_SIGN_STYLE = Manual; DEVELOPMENT_TEAM = ""; GENERATE_INFOPLIST_FILE = NO; INFOPLIST_FILE = App/Resources/Info.plist; PRODUCT_BUNDLE_IDENTIFIER = com.securitylab.jailbreaklab; PRODUCT_NAME = "$(TARGET_NAME)"; SUPPORTED_PLATFORMS = iphoneos; SUPPORTS_MACCATALYST = NO; SWIFT_OBJC_BRIDGING_HEADER = "App/Resources/JailbreakLab-Bridging-Header.h"; TARGETED_DEVICE_FAMILY = 1;}; name = Release; };
+		AB0000000000000000000005 /* Debug */ = {isa = XCBuildConfiguration; buildSettings = {BUNDLE_LOADER = "$(TEST_HOST)"; GENERATE_INFOPLIST_FILE = YES; PRODUCT_BUNDLE_IDENTIFIER = com.securitylab.jailbreaklab.tests; PRODUCT_NAME = "$(TARGET_NAME)"; TEST_HOST = "$(BUILT_PRODUCTS_DIR)/JailbreakLab.app/JailbreakLab";}; name = Debug; };
+		AB0000000000000000000006 /* Release */ = {isa = XCBuildConfiguration; buildSettings = {BUNDLE_LOADER = "$(TEST_HOST)"; GENERATE_INFOPLIST_FILE = YES; PRODUCT_BUNDLE_IDENTIFIER = com.securitylab.jailbreaklab.tests; PRODUCT_NAME = "$(TARGET_NAME)"; TEST_HOST = "$(BUILT_PRODUCTS_DIR)/JailbreakLab.app/JailbreakLab";}; name = Release; };
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		AA0000000000000000000000 /* Build configuration list for PBXProject */ = {isa = XCConfigurationList; buildConfigurations = (AB0000000000000000000001, AB0000000000000000000002,); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
+		AA0000000000000000000001 /* Build configuration list for PBXNativeTarget JailbreakLab */ = {isa = XCConfigurationList; buildConfigurations = (AB0000000000000000000003, AB0000000000000000000004,); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
+		AA0000000000000000000002 /* Build configuration list for PBXNativeTarget JailbreakLabTests */ = {isa = XCConfigurationList; buildConfigurations = (AB0000000000000000000005, AB0000000000000000000006,); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
+/* End XCConfigurationList section */
+	};
+	rootObject = A80000000000000000000001 /* Project object */;
+}

@@ -1,0 +1,67 @@
+name: Build jailbreak debs
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: jailbreaklab-build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build rootless and rootful packages
+    runs-on: macos-15
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Show build environment
+        run: |
+          set -euo pipefail
+          xcodebuild -version
+          xcrun --sdk iphoneos --show-sdk-path
+          swift --version
+
+      - name: Install packaging tools
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: "1"
+        run: |
+          set -euo pipefail
+          brew install ldid dpkg
+
+      - name: Run helper safety tests
+        run: |
+          set -euo pipefail
+          make test-helper
+
+      - name: Build signed deb packages
+        run: |
+          set -euo pipefail
+          make package
+
+      - name: Verify packages
+        run: |
+          set -euo pipefail
+          test -f Packages/com.securitylab.jailbreaklab_1.0.0_rootless.deb
+          test -f Packages/com.securitylab.jailbreaklab_1.0.0_rootful.deb
+          dpkg-deb --info Packages/com.securitylab.jailbreaklab_1.0.0_rootless.deb
+          dpkg-deb --info Packages/com.securitylab.jailbreaklab_1.0.0_rootful.deb
+          shasum -a 256 Packages/*.deb > Packages/SHA256SUMS
+          cat Packages/SHA256SUMS
+
+      - name: Upload install packages
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: JailbreakLab-debs-${{ github.run_number }}
+          path: |
+            Packages/*.deb
+            Packages/SHA256SUMS
+          if-no-files-found: error
+          retention-days: 14
