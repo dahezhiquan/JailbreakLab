@@ -733,6 +733,8 @@ static void configure_restricted_write(
     }
 
     char message[1024];
+    struct stat initial_information;
+    bool created_for_operation = lstat(effective_path, &initial_information) != 0 && errno == ENOENT;
     if (enable && !create_marker_directory(effective_path, false, message, sizeof(message))) {
         if (errno != EEXIST) {
             emit_result("/jb", effective_path, "failed", message);
@@ -789,6 +791,11 @@ static void configure_restricted_write(
     if (fchmod(directory, mode) != 0) {
         snprintf(message, sizeof(message), "permission change failed: %s", strerror(errno));
         close(directory);
+        if (created_for_operation) {
+            char cleanup_message[1024];
+            remove_marker_directory(effective_path, false, cleanup_message, sizeof(cleanup_message));
+            prune_owned_ancestors(effective_path);
+        }
         emit_result("/jb", effective_path, "failed", message);
         return;
     }
@@ -798,6 +805,11 @@ static void configure_restricted_write(
             int probe_error = errno;
             fchmod(directory, 0755);
             close(directory);
+            if (created_for_operation) {
+                char cleanup_message[1024];
+                remove_marker_directory(effective_path, false, cleanup_message, sizeof(cleanup_message));
+                prune_owned_ancestors(effective_path);
+            }
             errno = probe_error;
             snprintf(message, sizeof(message), "write probe failed: %s", strerror(errno));
             emit_result("/jb", effective_path, "failed", message);
