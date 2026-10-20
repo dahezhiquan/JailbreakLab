@@ -36,7 +36,10 @@ print -r -- "${apply_output}" | grep -q '"path":"/usr/sbin/frida-server"'
 
 write_output=$("${binary}" --operation enable-write --root-mode rootful --groups jailbreak-markers --dry-run)
 print -r -- "${write_output}" | grep -q '"path":"/"'
+print -r -- "${write_output}" | grep -q '"path":"/root"'
+print -r -- "${write_output}" | grep -q '"path":"/private"'
 print -r -- "${write_output}" | grep -q '"path":"/jb"'
+[[ $(print -r -- "${write_output}" | grep -c '^{') -eq 4 ]]
 
 if "${binary}" --operation apply --root-mode rootful --groups jailbreak-markers --live >/dev/null 2>&1; then
   print -u2 "unauthorized live operation was accepted"
@@ -45,6 +48,11 @@ fi
 
 if "${binary}" --operation enable-write --root-mode rootful --groups jailbreak-markers --live >/dev/null 2>&1; then
   print -u2 "unauthorized restricted-write operation was accepted"
+  exit 1
+fi
+
+if [[ ${EUID} -ne 0 ]] && "${binary}" --operation disable-write --root-mode rootful --groups jailbreak-markers --live >/dev/null 2>&1; then
+  print -u2 "unauthorized restricted-write restore was accepted"
   exit 1
 fi
 

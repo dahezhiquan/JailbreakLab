@@ -57,30 +57,29 @@ int main(void) {
     assert(unlink(existing_path) == 0);
 
     char restricted_path[MAX_PATH_LENGTH];
-    snprintf(restricted_path, sizeof(restricted_path), "%s/jb", root);
-    configure_restricted_write(restricted_path, true, false, false);
-    assert(stat(restricted_path, &information) == 0);
-    assert((information.st_mode & 01777) == 01777);
-    configure_restricted_write(restricted_path, false, false, false);
-    assert(stat(restricted_path, &information) == 0);
-    assert((information.st_mode & 0777) == 0755);
-    configure_restricted_write(restricted_path, true, false, false);
-    configure_restricted_write(restricted_path, false, true, false);
-    assert(lstat(restricted_path, &information) != 0 && errno == ENOENT);
-
+    snprintf(restricted_path, sizeof(restricted_path), "%s/restricted", root);
     assert(mkdir(restricted_path, 0700) == 0);
-    assert(chmod(restricted_path, 0777) == 0);
-    configure_restricted_write(restricted_path, true, false, false);
+    int restricted = open(restricted_path, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+    assert(restricted >= 0);
+    assert(fstat(restricted, &information) == 0);
+
+    restricted_state_t state = {0};
+    state.devices[0] = (uint64_t)information.st_dev;
+    state.inodes[0] = (uint64_t)information.st_ino;
+    assert(restricted_identity_matches(&state, 0, &information));
+    state.inodes[0]++;
+    assert(!restricted_identity_matches(&state, 0, &information));
+
+    assert(fchmod(restricted, 01777) == 0);
+    assert(verify_directory_write_as_caller(restricted));
+    assert(fchmod(restricted, 0700) == 0);
+    close(restricted);
     assert(stat(restricted_path, &information) == 0);
-    assert((information.st_mode & 0777) == 0777);
-    char ownership_marker[MAX_PATH_LENGTH];
-    snprintf(
-        ownership_marker, sizeof(ownership_marker),
-        "%s/%s", restricted_path, kDirectoryMarker
-    );
-    assert(lstat(ownership_marker, &information) != 0 && errno == ENOENT);
-    configure_restricted_write(restricted_path, false, true, false);
-    assert(stat(restricted_path, &information) == 0);
+    assert((information.st_mode & 07777) == 0700);
+
+    char private_path[MAX_PATH_LENGTH];
+    assert(restricted_effective_path("/private", true, private_path, sizeof(private_path)));
+    assert(strcmp(private_path, "/private") == 0);
     assert(rmdir(restricted_path) == 0);
 
     assert(rmdir(root) == 0);

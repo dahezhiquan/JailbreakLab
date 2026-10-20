@@ -11,6 +11,7 @@
 #include <sys/stat.h>
 #include <sys/mount.h>
 #include <sys/types.h>
+#include <sys/wait.h>
 #include <unistd.h>
 
 #ifndef O_CLOEXEC
@@ -27,6 +28,25 @@
 
 static const char *kFileSignature = "JAILBREAKLAB_ARTIFACT_V1\n";
 static const char *kDirectoryMarker = ".jailbreaklab-owned-v1";
+static const char *kRestrictedStateDirectory = "/private/var/db/jailbreaklab";
+static const char *kRestrictedStateFile = "restricted-write-state-v2";
+
+#define RESTRICTED_TARGET_COUNT 3
+
+typedef struct {
+    char magic[32];
+    uint32_t version;
+    uint32_t rootless;
+    uint32_t active_mask;
+    uint32_t created_mask;
+    uint32_t original_modes[RESTRICTED_TARGET_COUNT];
+    uint64_t devices[RESTRICTED_TARGET_COUNT];
+    uint64_t inodes[RESTRICTED_TARGET_COUNT];
+} restricted_state_t;
+
+static const char *kRestrictedTargets[RESTRICTED_TARGET_COUNT] = {
+    "/root", "/private", "/jb"
+};
 
 typedef enum {
     KIND_FILE,
@@ -216,15 +236,12 @@ static bool remains_in_data_volume(const char *path) {
            strcmp(path, "/private/var") == 0;
 }
 
-static bool effective_path_for(
+static bool effective_path_for_layout(
     const char *original,
-    const char *root_mode,
+    bool use_rootless,
     char *output,
     size_t capacity
 ) {
-    bool use_rootless = strcmp(root_mode, "rootless") == 0 ||
-        (strcmp(root_mode, "auto") == 0 && is_rootless_available());
-
     char mapped[MAX_PATH_LENGTH];
     int result;
     if (use_rootless && !remains_in_data_volume(original)) {
@@ -244,6 +261,30 @@ static bool effective_path_for(
         result = snprintf(output, capacity, "%s", mapped);
     }
     return result > 0 && (size_t)result < capacity;
+}
+
+static bool effective_path_for(
+    const char *original,
+    const char *root_mode,
+    char *output,
+    size_t capacity
+) {
+    bool use_rootless = strcmp(root_mode, "rootless") == 0 ||
+        (strcmp(root_mode, "auto") == 0 && is_rootless_available());
+    return effective_path_for_layout(original, use_rootless, output, capacity);
+}
+
+static bool restricted_effective_path(
+    const char *original,
+    bool use_rootless,
+    char *output,
+    size_t capacity
+) {
+    if (strcmp(original, "/private") == 0) {
+        int result = snprintf(output, capacity, "%s", original);
+        return result > 0 && (size_t)result < capacity;
+    }
+    return effective_path_for_layout(original, use_rootless, output, capacity);
 }
 
 static int open_root(void) {
@@ -387,6 +428,23 @@ static bool verify_directory_write(int directory) {
     if (!removed) saved = errno;
     errno = saved;
     return content_written && removed;
+}
+
+static bool verify_directory_write_as_caller(int directory) {
+    pid_t child = fork();
+    if (child < 0) return false;
+    if (child == 0) {
+        if (geteuid() == 0 && getuid() != 0) {
+            if (setegid(getgid()) != 0 || seteuid(getuid()) != 0) _exit(1);
+        }
+        _exit(verify_directory_write(directory) ? 0 : 1);
+    }
+
+    int status = 0;
+    while (waitpid(child, &status, 0) < 0) {
+        if (errno != EINTR) return false;
+    }
+    return WIFEXITED(status) && WEXITSTATUS(status) == 0;
 }
 
 static bool dry_run_can_create(const char *path, char *message, size_t capacity) {
@@ -718,130 +776,334 @@ static void prune_owned_ancestors(const char *path) {
     }
 }
 
-static void configure_restricted_write(
-    const char *effective_path,
-    bool enable,
-    bool remove_when_disabled,
-    bool dry_run
-) {
-    if (dry_run) {
-        emit_result(
-            "/jb", effective_path, "planned",
-            enable ? "would make owned /jb directory writable" : "would restore owned /jb permissions"
-        );
-        return;
-    }
-
+static int open_restricted_state_directory(bool create) {
     char message[1024];
-    struct stat initial_information;
-    bool created_for_operation = lstat(effective_path, &initial_information) != 0 && errno == ENOENT;
-    if (enable && !create_marker_directory(effective_path, false, message, sizeof(message))) {
-        if (errno != EEXIST) {
-            emit_result("/jb", effective_path, "failed", message);
-            return;
-        }
+    if (create && !create_marker_directory(
+        kRestrictedStateDirectory, false, message, sizeof(message)
+    ) && errno != EEXIST) {
+        return -1;
     }
 
     char leaf[NAME_MAX + 1];
-    int parent = open_parent_directory(effective_path, leaf, sizeof(leaf), false);
-    if (parent < 0) {
-        if (!enable && errno == ENOENT) {
-            emit_result("/jb", effective_path, "absent", "owned writable directory is already absent");
-        } else {
-            snprintf(message, sizeof(message), "cannot open parent: %s", strerror(errno));
-            emit_result("/jb", effective_path, "failed", message);
-        }
-        return;
-    }
-
+    int parent = open_parent_directory(
+        kRestrictedStateDirectory, leaf, sizeof(leaf), false
+    );
+    if (parent < 0) return -1;
     int directory = openat(parent, leaf, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
     int saved = errno;
     close(parent);
     errno = saved;
-    if (directory < 0) {
-        snprintf(message, sizeof(message), "cannot open /jb: %s", strerror(errno));
-        emit_result("/jb", effective_path, "failed", message);
-        return;
-    }
-    if (!directory_is_owned(directory)) {
-        struct stat information;
-        bool world_writable = fstat(directory, &information) == 0 &&
-            (information.st_mode & S_IWOTH) != 0;
-        bool write_verified = enable && world_writable && verify_directory_write(directory);
-        int verification_error = errno;
+    if (directory >= 0 && !directory_is_owned(directory)) {
         close(directory);
-        if (write_verified || !enable) {
-            emit_result(
-                "/jb", effective_path, "already_present",
-                enable
-                    ? "existing /jb write probe succeeded and permissions were not modified"
-                    : "existing /jb is not owned by Jailbreak Lab and was not modified"
-            );
-        } else if (enable && world_writable) {
-            errno = verification_error;
-            snprintf(message, sizeof(message), "write probe failed: %s", strerror(errno));
-            emit_result("/jb", effective_path, "failed", message);
-        } else {
-            emit_result("/jb", effective_path, "protected", "existing /jb is not owned by Jailbreak Lab");
-        }
-        return;
+        errno = EPERM;
+        return -1;
     }
+    return directory;
+}
 
-    mode_t mode = enable ? 01777 : 0755;
-    if (fchmod(directory, mode) != 0) {
-        snprintf(message, sizeof(message), "permission change failed: %s", strerror(errno));
-        close(directory);
-        if (created_for_operation) {
-            char cleanup_message[1024];
-            remove_marker_directory(effective_path, false, cleanup_message, sizeof(cleanup_message));
-            prune_owned_ancestors(effective_path);
-        }
-        emit_result("/jb", effective_path, "failed", message);
-        return;
-    }
-
-    if (enable) {
-        if (!verify_directory_write(directory)) {
-            int probe_error = errno;
-            fchmod(directory, 0755);
-            close(directory);
-            if (created_for_operation) {
-                char cleanup_message[1024];
-                remove_marker_directory(effective_path, false, cleanup_message, sizeof(cleanup_message));
-                prune_owned_ancestors(effective_path);
-            }
-            errno = probe_error;
-            snprintf(message, sizeof(message), "write probe failed: %s", strerror(errno));
-            emit_result("/jb", effective_path, "failed", message);
-            return;
-        }
-    }
+static bool load_restricted_state(restricted_state_t *state) {
+    int directory = open_restricted_state_directory(false);
+    if (directory < 0) return false;
+    int descriptor = openat(
+        directory, kRestrictedStateFile, O_RDONLY | O_NOFOLLOW | O_CLOEXEC
+    );
+    int saved = errno;
     close(directory);
+    errno = saved;
+    if (descriptor < 0) return false;
 
-    if (enable) {
-        emit_result("/jb", effective_path, "created", "write probe succeeded; owned /jb uses mode 1777");
+    restricted_state_t candidate;
+    ssize_t count = read(descriptor, &candidate, sizeof(candidate));
+    char extra = 0;
+    ssize_t extra_count = read(descriptor, &extra, 1);
+    close(descriptor);
+    static const char expected_magic[] = "JAILBREAKLAB_RESTRICTED_V2";
+    if (count != (ssize_t)sizeof(candidate) || extra_count != 0 ||
+        candidate.version != 2 ||
+        memcmp(candidate.magic, expected_magic, sizeof(expected_magic)) != 0) {
+        errno = EINVAL;
+        return false;
+    }
+    *state = candidate;
+    return true;
+}
+
+static bool save_restricted_state(const restricted_state_t *state) {
+    int directory = open_restricted_state_directory(true);
+    if (directory < 0) return false;
+    int descriptor = openat(
+        directory, kRestrictedStateFile,
+        O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0600
+    );
+    int saved = errno;
+    if (descriptor < 0) {
+        close(directory);
+        errno = saved;
+        return false;
+    }
+    bool succeeded = write_all(descriptor, (const char *)state, sizeof(*state)) &&
+        fsync(descriptor) == 0;
+    saved = errno;
+    close(descriptor);
+    if (!succeeded) unlinkat(directory, kRestrictedStateFile, 0);
+    close(directory);
+    errno = saved;
+    return succeeded;
+}
+
+static void remove_restricted_state(void) {
+    int directory = open_restricted_state_directory(false);
+    if (directory >= 0) {
+        unlinkat(directory, kRestrictedStateFile, 0);
+        close(directory);
+    }
+    char message[1024];
+    remove_marker_directory(kRestrictedStateDirectory, false, message, sizeof(message));
+    prune_owned_ancestors(kRestrictedStateDirectory);
+}
+
+static int open_restricted_target(const char *path, struct stat *information) {
+    char leaf[NAME_MAX + 1];
+    int parent = open_parent_directory(path, leaf, sizeof(leaf), false);
+    if (parent < 0) return -1;
+    int directory = openat(parent, leaf, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+    int saved = errno;
+    close(parent);
+    errno = saved;
+    if (directory >= 0 && fstat(directory, information) != 0) {
+        saved = errno;
+        close(directory);
+        errno = saved;
+        return -1;
+    }
+    return directory;
+}
+
+static bool restricted_identity_matches(
+    const restricted_state_t *state,
+    size_t index,
+    const struct stat *information
+) {
+    return state->devices[index] == (uint64_t)information->st_dev &&
+        state->inodes[index] == (uint64_t)information->st_ino;
+}
+
+static void rollback_new_restricted_directories(const restricted_state_t *state) {
+    for (size_t index = 0; index < RESTRICTED_TARGET_COUNT; index++) {
+        if ((state->created_mask & (1U << index)) == 0) continue;
+        char path[MAX_PATH_LENGTH];
+        if (!restricted_effective_path(
+            kRestrictedTargets[index], state->rootless != 0, path, sizeof(path)
+        )) continue;
+        char message[1024];
+        remove_marker_directory(path, false, message, sizeof(message));
+        prune_owned_ancestors(path);
+    }
+}
+
+static bool prepare_restricted_state(bool use_rootless, restricted_state_t *state) {
+    memset(state, 0, sizeof(*state));
+    snprintf(state->magic, sizeof(state->magic), "JAILBREAKLAB_RESTRICTED_V2");
+    state->version = 2;
+    state->rootless = use_rootless ? 1 : 0;
+
+    for (size_t index = 0; index < RESTRICTED_TARGET_COUNT; index++) {
+        char path[MAX_PATH_LENGTH];
+        if (!restricted_effective_path(
+            kRestrictedTargets[index], use_rootless, path, sizeof(path)
+        )) {
+            emit_result(kRestrictedTargets[index], kRestrictedTargets[index], "failed", "path mapping failed");
+            continue;
+        }
+
+        struct stat information;
+        bool existed = lstat(path, &information) == 0;
+        int inspection_error = errno;
+        if (existed && !S_ISDIR(information.st_mode)) {
+            emit_result(kRestrictedTargets[index], path, "failed", "target is not a directory");
+            continue;
+        }
+        if (!existed) {
+            char message[1024] = {0};
+            if (inspection_error != ENOENT) {
+                snprintf(message, sizeof(message), "cannot inspect target: %s", strerror(inspection_error));
+                emit_result(kRestrictedTargets[index], path, "failed", message);
+                continue;
+            }
+            if (!create_marker_directory(path, false, message, sizeof(message)) ||
+                lstat(path, &information) != 0) {
+                if (message[0] == '\0') {
+                    snprintf(message, sizeof(message), "cannot inspect created directory: %s", strerror(errno));
+                }
+                emit_result(kRestrictedTargets[index], path, "failed", message);
+                continue;
+            }
+            state->created_mask |= (1U << index);
+        }
+
+        state->active_mask |= (1U << index);
+        state->original_modes[index] = (uint32_t)(information.st_mode & 07777);
+        state->devices[index] = (uint64_t)information.st_dev;
+        state->inodes[index] = (uint64_t)information.st_ino;
+    }
+
+    if (state->active_mask == 0) return false;
+    if (!save_restricted_state(state)) {
+        int saved = errno;
+        rollback_new_restricted_directories(state);
+        errno = saved;
+        for (size_t index = 0; index < RESTRICTED_TARGET_COUNT; index++) {
+            if ((state->active_mask & (1U << index)) != 0) {
+                emit_result(
+                    kRestrictedTargets[index], kRestrictedTargets[index],
+                    "failed", "cannot save original directory permissions"
+                );
+            }
+        }
+        return false;
+    }
+    return true;
+}
+
+static void enable_restricted_directories(bool use_rootless, bool dry_run) {
+    if (dry_run) {
+        for (size_t index = 0; index < RESTRICTED_TARGET_COUNT; index++) {
+            char path[MAX_PATH_LENGTH];
+            if (!restricted_effective_path(
+                kRestrictedTargets[index], use_rootless, path, sizeof(path)
+            )) snprintf(path, sizeof(path), "%s", kRestrictedTargets[index]);
+            emit_result(kRestrictedTargets[index], path, "planned", "would set mode 1777 and run write probe");
+        }
         return;
     }
 
-    if (!remove_when_disabled) {
-        emit_result("/jb", effective_path, "removed", "owned /jb write permission restored to mode 0755");
+    restricted_state_t state;
+    bool state_loaded = load_restricted_state(&state);
+    if (!state_loaded && !prepare_restricted_state(use_rootless, &state)) return;
+
+    for (size_t index = 0; index < RESTRICTED_TARGET_COUNT; index++) {
+        if ((state.active_mask & (1U << index)) == 0) {
+            if (!state_loaded) continue;
+            char path[MAX_PATH_LENGTH];
+            if (!restricted_effective_path(
+                kRestrictedTargets[index], state.rootless != 0, path, sizeof(path)
+            )) snprintf(path, sizeof(path), "%s", kRestrictedTargets[index]);
+            emit_result(
+                kRestrictedTargets[index], path, "failed",
+                "target was unavailable when original permissions were recorded"
+            );
+            continue;
+        }
+        char path[MAX_PATH_LENGTH];
+        if (!restricted_effective_path(
+            kRestrictedTargets[index], state.rootless != 0, path, sizeof(path)
+        )) continue;
+
+        struct stat information;
+        int directory = open_restricted_target(path, &information);
+        if (directory < 0 || !restricted_identity_matches(&state, index, &information)) {
+            if (directory >= 0) close(directory);
+            emit_result(kRestrictedTargets[index], path, "protected", "directory identity changed; no permissions modified");
+            continue;
+        }
+        if (fchmod(directory, 01777) != 0) {
+            char message[1024];
+            snprintf(message, sizeof(message), "permission change failed: %s", strerror(errno));
+            close(directory);
+            emit_result(kRestrictedTargets[index], path, "failed", message);
+            continue;
+        }
+        if (!verify_directory_write_as_caller(directory)) {
+            fchmod(directory, (mode_t)state.original_modes[index]);
+            close(directory);
+            emit_result(kRestrictedTargets[index], path, "failed", "write probe failed; original mode restored");
+            continue;
+        }
+        close(directory);
+        emit_result(kRestrictedTargets[index], path, "created", "mode 1777 set; caller-UID write probe succeeded");
+    }
+}
+
+static void disable_restricted_directories(bool dry_run) {
+    if (dry_run) {
+        for (size_t index = 0; index < RESTRICTED_TARGET_COUNT; index++) {
+            emit_result(
+                kRestrictedTargets[index], kRestrictedTargets[index],
+                "planned", "would restore recorded original permissions"
+            );
+        }
         return;
     }
 
-    bool removed = remove_marker_directory(effective_path, false, message, sizeof(message));
-    if (removed) {
-        prune_owned_ancestors(effective_path);
-        emit_result("/jb", effective_path, "removed", "owned writable /jb directory removed");
-    } else if (errno == ENOTEMPTY) {
-        emit_result(
-            "/jb", effective_path, "removed",
-            "write permission restored; owned /jb retained because it contains other files"
-        );
-    } else if (errno == ENOENT) {
-        emit_result("/jb", effective_path, "absent", "owned writable directory is already absent");
-    } else {
-        emit_result("/jb", effective_path, errno == EPERM ? "protected" : "failed", message);
+    restricted_state_t state;
+    if (!load_restricted_state(&state)) {
+        int state_error = errno;
+        for (size_t index = 0; index < RESTRICTED_TARGET_COUNT; index++) {
+            emit_result(
+                kRestrictedTargets[index], kRestrictedTargets[index],
+                state_error == ENOENT ? "absent" : "protected",
+                state_error == ENOENT
+                    ? "no saved permission state"
+                    : "saved permission state is unavailable or invalid"
+            );
+        }
+        return;
     }
+
+    bool fully_restored = true;
+    for (size_t index = 0; index < RESTRICTED_TARGET_COUNT; index++) {
+        if ((state.active_mask & (1U << index)) == 0) {
+            char path[MAX_PATH_LENGTH];
+            if (!restricted_effective_path(
+                kRestrictedTargets[index], state.rootless != 0, path, sizeof(path)
+            )) snprintf(path, sizeof(path), "%s", kRestrictedTargets[index]);
+            emit_result(kRestrictedTargets[index], path, "absent", "no saved permission state");
+            continue;
+        }
+        char path[MAX_PATH_LENGTH];
+        if (!restricted_effective_path(
+            kRestrictedTargets[index], state.rootless != 0, path, sizeof(path)
+        )) {
+            fully_restored = false;
+            continue;
+        }
+
+        struct stat information;
+        int directory = open_restricted_target(path, &information);
+        if (directory < 0 && errno == ENOENT && (state.created_mask & (1U << index)) != 0) {
+            emit_result(kRestrictedTargets[index], path, "absent", "tool-created directory is already absent");
+            continue;
+        }
+        if (directory < 0 || !restricted_identity_matches(&state, index, &information)) {
+            if (directory >= 0) close(directory);
+            fully_restored = false;
+            emit_result(kRestrictedTargets[index], path, "protected", "directory identity changed; original mode not applied");
+            continue;
+        }
+        if (fchmod(directory, (mode_t)state.original_modes[index]) != 0) {
+            char message[1024];
+            snprintf(message, sizeof(message), "permission restore failed: %s", strerror(errno));
+            close(directory);
+            fully_restored = false;
+            emit_result(kRestrictedTargets[index], path, "failed", message);
+            continue;
+        }
+        close(directory);
+
+        if ((state.created_mask & (1U << index)) != 0) {
+            char message[1024];
+            if (remove_marker_directory(path, false, message, sizeof(message))) {
+                prune_owned_ancestors(path);
+            } else if (errno != ENOTEMPTY && errno != ENOENT) {
+                fully_restored = false;
+                emit_result(kRestrictedTargets[index], path, "failed", message);
+                continue;
+            }
+        }
+        emit_result(kRestrictedTargets[index], path, "removed", "recorded original permissions restored");
+    }
+
+    if (fully_restored) remove_restricted_state();
 }
 
 static void emit_root_filesystem_status(void) {
@@ -971,7 +1233,11 @@ int main(int argument_count, char **arguments) {
         fprintf(stderr, "live filesystem operations require effective uid 0\n");
         return 77;
     }
-    if (!options.dry_run && strcmp(options.operation, "probe") != 0 && !caller_is_expected_app()) {
+    bool restore_operation = strcmp(options.operation, "disable-write") == 0 ||
+        strcmp(options.operation, "disable-write-remove") == 0;
+    bool root_restore = restore_operation && getuid() == 0 && geteuid() == 0;
+    if (!options.dry_run && strcmp(options.operation, "probe") != 0 &&
+        !root_restore && !caller_is_expected_app()) {
         fprintf(stderr, "live filesystem operations require the Jailbreak Lab app as direct caller\n");
         return 77;
     }
@@ -980,17 +1246,13 @@ int main(int argument_count, char **arguments) {
         strcmp(options.operation, "disable-write") == 0 ||
         strcmp(options.operation, "disable-write-remove") == 0) {
         emit_root_filesystem_status();
-        char effective_path[MAX_PATH_LENGTH];
-        if (!effective_path_for("/jb", options.root_mode, effective_path, sizeof(effective_path))) {
-            emit_result("/jb", "/jb", "failed", "effective path is unavailable or too long");
-            return 0;
+        bool use_rootless = strcmp(options.root_mode, "rootless") == 0 ||
+            (strcmp(options.root_mode, "auto") == 0 && is_rootless_available());
+        if (strcmp(options.operation, "enable-write") == 0) {
+            enable_restricted_directories(use_rootless, options.dry_run);
+        } else {
+            disable_restricted_directories(options.dry_run);
         }
-        configure_restricted_write(
-            effective_path,
-            strcmp(options.operation, "enable-write") == 0,
-            strcmp(options.operation, "disable-write-remove") == 0,
-            options.dry_run
-        );
         return 0;
     }
 

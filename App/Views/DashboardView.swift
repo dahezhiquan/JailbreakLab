@@ -18,9 +18,10 @@ struct DashboardView: View {
 
                 strategyRow(
                     title: "受限目录是否可写",
-                    detail: "使 /jb/ 具有可写权限（rootless 自动映射）",
+                    detail: "尝试使 /root/、/private/、/jb/ 可写",
                     isOn: store.isRestrictedWriteEnabled,
                     status: store.restrictedWriteStatus,
+                    details: store.restrictedWriteDetails,
                     symbol: "folder.badge.gearshape"
                 ) { enabled in
                     await store.setRestrictedWriteEnabled(enabled)
@@ -47,6 +48,7 @@ struct DashboardView: View {
         detail: String,
         isOn: Bool,
         status: String,
+        details: [String] = [],
         symbol: String,
         action: @escaping @MainActor (Bool) async -> Void
     ) -> some View {
@@ -83,6 +85,13 @@ struct DashboardView: View {
                 Text(status)
                     .font(.footnote)
                     .foregroundStyle(.secondary)
+            }
+
+            ForEach(details, id: \.self) { detail in
+                Text(detail)
+                    .font(.caption.monospaced())
+                    .foregroundStyle(detail.hasPrefix("✓") ? .secondary : .red)
+                    .textSelection(.enabled)
             }
         }
     }

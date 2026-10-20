@@ -7,6 +7,7 @@ final class SimulationStore: ObservableObject {
     @Published private(set) var suspiciousFilesStatus: String
     @Published private(set) var isRestrictedWriteEnabled: Bool
     @Published private(set) var restrictedWriteStatus: String
+    @Published private(set) var restrictedWriteDetails: [String]
     @Published private(set) var results: [ArtifactResult] = []
     @Published private(set) var isRunning = false
     @Published var alertMessage: String?
@@ -22,7 +23,10 @@ final class SimulationStore: ObservableObject {
         isSuspiciousFilesEnabled = suspiciousFilesEnabled
         suspiciousFilesStatus = suspiciousFilesEnabled ? "已开启" : "已关闭"
         isRestrictedWriteEnabled = restrictedWriteEnabled
-        restrictedWriteStatus = restrictedWriteEnabled ? "已开启：/jb/ 可写" : "已关闭"
+        restrictedWriteStatus = restrictedWriteEnabled ? "已开启：等待刷新三个目录状态" : "已关闭"
+        restrictedWriteDetails = restrictedWriteEnabled
+            ? ["上次已开启；重新切换开关可刷新逐项结果"]
+            : []
     }
 
     func setSuspiciousFilesEnabled(_ enabled: Bool) async {
@@ -30,8 +34,22 @@ final class SimulationStore: ObservableObject {
         isRunning = true
         defer { isRunning = false }
         suspiciousFilesStatus = enabled ? "正在写入可疑路径…" : "正在删除本工具创建的路径…"
+        let preserveRestrictedWrite = !enabled && isRestrictedWriteEnabled
+        var restrictedWriteTemporarilyDisabled = false
 
         do {
+            if preserveRestrictedWrite {
+                let restoreResults = try await runRestrictedWrite(operation: "disable-write")
+                let restoreTargets = restrictedTargets(in: restoreResults)
+                restrictedWriteDetails = restrictedDetails(from: restoreTargets, enabling: false)
+                let failures = restoreTargets.filter(isRestrictedFailure)
+                guard failures.isEmpty else {
+                    restrictedWriteStatus = "恢复未完成：失败 \(failures.count)/3"
+                    throw HelperClientError.operationRejected("先恢复受限目录权限时失败")
+                }
+                restrictedWriteTemporarilyDisabled = true
+            }
+
             results = try await helperClient.run(
                 operation: enabled ? "apply" : "cleanup",
                 rootLayout: .automatic,
@@ -42,24 +60,18 @@ final class SimulationStore: ObservableObject {
             defaults.set(enabled, forKey: Self.suspiciousFilesKey)
             suspiciousFilesStatus = suspiciousSummary(for: enabled, results: results)
 
-            if !enabled && isRestrictedWriteEnabled {
-                do {
-                    let restrictedResults = try await runRestrictedWrite(operation: "enable-write")
-                    if let rejected = restrictedResults.first(where: {
-                        $0.status == .failed || $0.status == .protected
-                    }) {
-                        throw HelperClientError.operationRejected(rejected.message)
-                    }
-                } catch {
-                    isRestrictedWriteEnabled = false
-                    defaults.set(false, forKey: Self.restrictedWriteKey)
-                    restrictedWriteStatus = "已关闭：/jb/ 可写环境未能保留"
-                    alertMessage = error.localizedDescription
-                }
+            if preserveRestrictedWrite {
+                restrictedWriteTemporarilyDisabled = false
+                try await reenableRestrictedWriteEnvironment()
             }
         } catch {
+            if restrictedWriteTemporarilyDisabled {
+                try? await reenableRestrictedWriteEnvironment()
+            }
             suspiciousFilesStatus = isSuspiciousFilesEnabled ? "已开启" : "已关闭"
-            alertMessage = error.localizedDescription
+            if alertMessage == nil {
+                alertMessage = error.localizedDescription
+            }
         }
     }
 
@@ -67,32 +79,60 @@ final class SimulationStore: ObservableObject {
         guard enabled != isRestrictedWriteEnabled, !isRunning else { return }
         isRunning = true
         defer { isRunning = false }
-        restrictedWriteStatus = enabled ? "正在设置 /jb/ 可写…" : "正在恢复 /jb/ 权限…"
+        restrictedWriteStatus = enabled ? "正在逐项设置三个目录…" : "正在恢复三个目录的原权限…"
+        restrictedWriteDetails = []
 
         do {
             let operation = enabled
                 ? "enable-write"
                 : (isSuspiciousFilesEnabled ? "disable-write" : "disable-write-remove")
             let operationResults = try await runRestrictedWrite(operation: operation)
-            if let rejected = operationResults.first(where: {
-                $0.status == .failed || $0.status == .protected
-            }) {
-                throw HelperClientError.operationRejected(rejected.message)
-            }
+            let targetResults = restrictedTargets(in: operationResults)
             results = operationResults
-            isRestrictedWriteEnabled = enabled
-            defaults.set(enabled, forKey: Self.restrictedWriteKey)
-            let rootMessage = operationResults.first(where: { $0.path == "/" })?.message ?? ""
-            let rootStatus = rootMessage.contains("read-only")
-                ? "根文件系统只读"
-                : (rootMessage.contains("writable") ? "根文件系统可写" : "根文件系统状态未知")
-            let writablePath = operationResults.first(where: { $0.path == "/jb" })?.effectivePath ?? "/jb"
-            restrictedWriteStatus = enabled
-                ? "已开启：\(rootStatus)；\(writablePath) 写入测试成功"
-                : "已关闭：/jb/ 已恢复"
+            restrictedWriteDetails = restrictedDetails(from: targetResults, enabling: enabled)
+
+            if enabled {
+                let succeeded = targetResults.filter(isRestrictedEnableSuccess).count
+                if succeeded == 0 {
+                    let rollbackResults = try? await runRestrictedWrite(operation: "disable-write")
+                    if let rollbackResults {
+                        restrictedWriteDetails += restrictedDetails(
+                            from: restrictedTargets(in: rollbackResults),
+                            enabling: false
+                        )
+                    }
+                    isRestrictedWriteEnabled = false
+                    defaults.set(false, forKey: Self.restrictedWriteKey)
+                    restrictedWriteStatus = "开启失败：成功 0/3，已尝试回滚"
+                    throw HelperClientError.operationRejected("三个目录都未能设置为可写")
+                }
+
+                isRestrictedWriteEnabled = true
+                defaults.set(true, forKey: Self.restrictedWriteKey)
+                restrictedWriteStatus = restrictedSummary(from: operationResults, enabling: true)
+                if succeeded < targetResults.count {
+                    alertMessage = "只有 \(succeeded)/3 个目录设置成功，请查看逐项结果。"
+                }
+            } else {
+                let failures = targetResults.filter(isRestrictedFailure)
+                if failures.isEmpty {
+                    isRestrictedWriteEnabled = false
+                    defaults.set(false, forKey: Self.restrictedWriteKey)
+                    restrictedWriteStatus = restrictedSummary(from: operationResults, enabling: false)
+                } else {
+                    isRestrictedWriteEnabled = true
+                    defaults.set(true, forKey: Self.restrictedWriteKey)
+                    restrictedWriteStatus = "恢复未完成：失败 \(failures.count)/3"
+                    alertMessage = "有 \(failures.count) 个目录未能恢复原权限，开关保持开启，可再次尝试关闭。"
+                }
+            }
         } catch {
-            restrictedWriteStatus = isRestrictedWriteEnabled ? "已开启：/jb/ 可写" : "已关闭"
-            alertMessage = error.localizedDescription
+            if restrictedWriteStatus.hasPrefix("正在") {
+                restrictedWriteStatus = isRestrictedWriteEnabled ? "已开启：恢复前状态" : "已关闭"
+            }
+            if alertMessage == nil {
+                alertMessage = error.localizedDescription
+            }
         }
     }
 
@@ -103,6 +143,72 @@ final class SimulationStore: ObservableObject {
             strategies: Set(EnvironmentStrategy.allCases),
             dryRun: false
         )
+    }
+
+    private func reenableRestrictedWriteEnvironment() async throws {
+        let restrictedResults = try await runRestrictedWrite(operation: "enable-write")
+        let targetResults = restrictedTargets(in: restrictedResults)
+        let succeeded = targetResults.filter(isRestrictedEnableSuccess).count
+        restrictedWriteDetails = restrictedDetails(from: targetResults, enabling: true)
+        guard succeeded > 0 else {
+            _ = try? await runRestrictedWrite(operation: "disable-write")
+            isRestrictedWriteEnabled = false
+            defaults.set(false, forKey: Self.restrictedWriteKey)
+            restrictedWriteStatus = "已关闭：可写环境未能保留"
+            throw HelperClientError.operationRejected("三个目录都未能设置为可写")
+        }
+
+        isRestrictedWriteEnabled = true
+        defaults.set(true, forKey: Self.restrictedWriteKey)
+        restrictedWriteStatus = restrictedSummary(from: restrictedResults, enabling: true)
+        if succeeded < 3 {
+            alertMessage = "只有 \(succeeded)/3 个目录设置成功，请查看逐项结果。"
+        }
+    }
+
+    private func restrictedTargets(in results: [ArtifactResult]) -> [ArtifactResult] {
+        let paths: Set<String> = ["/root", "/private", "/jb"]
+        return results.filter { paths.contains($0.path) }
+    }
+
+    private func isRestrictedEnableSuccess(_ result: ArtifactResult) -> Bool {
+        result.status == .created || result.status == .alreadyPresent
+    }
+
+    private func isRestrictedFailure(_ result: ArtifactResult) -> Bool {
+        result.status == .failed || result.status == .protected
+    }
+
+    private func restrictedSummary(from results: [ArtifactResult], enabling: Bool) -> String {
+        let targets = restrictedTargets(in: results)
+        let rootMessage = results.first(where: { $0.path == "/" })?.message ?? ""
+        let rootStatus = rootMessage.contains("read-only")
+            ? "根文件系统只读"
+            : (rootMessage.contains("writable") ? "根文件系统可写" : "根文件系统状态未知")
+        if enabling {
+            let succeeded = targets.filter(isRestrictedEnableSuccess).count
+            return "已开启：成功 \(succeeded)/3；\(rootStatus)"
+        }
+        let restored = targets.filter { !isRestrictedFailure($0) }.count
+        return "已关闭：恢复 \(restored)/3"
+    }
+
+    private func restrictedDetails(
+        from results: [ArtifactResult],
+        enabling: Bool
+    ) -> [String] {
+        results.map { result in
+            let succeeded = enabling
+                ? isRestrictedEnableSuccess(result)
+                : !isRestrictedFailure(result)
+            let symbol = succeeded ? "✓" : "✕"
+            let mapped = result.path == result.effectivePath
+                ? result.path
+                : "\(result.path) → \(result.effectivePath)"
+            return succeeded
+                ? "\(symbol) \(mapped)"
+                : "\(symbol) \(mapped)：\(result.message)"
+        }
     }
 
     private func suspiciousSummary(for enabled: Bool, results: [ArtifactResult]) -> String {
