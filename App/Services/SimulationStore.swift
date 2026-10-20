@@ -3,60 +3,57 @@ import Combine
 
 @MainActor
 final class SimulationStore: ObservableObject {
-    @Published var selectedStrategies: Set<EnvironmentStrategy> = [.jailbreakMarkers]
-    @Published var operationMode: OperationMode = .dryRun
-    @Published var rootLayout: RootLayout = .automatic
-    @Published var riskAcknowledged = false
+    @Published private(set) var isEnabled: Bool
+    @Published private(set) var statusMessage: String
     @Published private(set) var results: [ArtifactResult] = []
     @Published private(set) var isRunning = false
     @Published var alertMessage: String?
 
     private let helperClient = HelperClient()
+    private let defaults = UserDefaults.standard
+    private static let enabledKey = "SuspiciousFilesEnvironmentEnabled"
 
-    var selectedArtifacts: [DetectionArtifact] {
-        ArtifactCatalog.all.filter { selectedStrategies.contains($0.strategy) }
+    init() {
+        let enabled = UserDefaults.standard.bool(forKey: Self.enabledKey)
+        isEnabled = enabled
+        statusMessage = enabled ? "已开启" : "已关闭"
     }
 
-    var canApply: Bool {
-        !selectedStrategies.isEmpty
-            && !isRunning
-            && (operationMode == .dryRun || riskAcknowledged)
-    }
-
-    func setStrategy(_ strategy: EnvironmentStrategy, enabled: Bool) {
-        if enabled {
-            selectedStrategies.insert(strategy)
-        } else {
-            selectedStrategies.remove(strategy)
-        }
-    }
-
-    func probe() async {
-        await execute(operation: "probe", dryRun: true)
-    }
-
-    func apply() async {
-        await execute(operation: "apply", dryRun: operationMode == .dryRun)
-    }
-
-    func clean() async {
-        await execute(operation: "cleanup", dryRun: operationMode == .dryRun)
-    }
-
-    private func execute(operation: String, dryRun: Bool) async {
-        guard !selectedStrategies.isEmpty else { return }
+    func setEnabled(_ enabled: Bool) async {
+        guard enabled != isEnabled, !isRunning else { return }
         isRunning = true
         defer { isRunning = false }
+        statusMessage = enabled ? "正在写入可疑路径…" : "正在删除本工具创建的路径…"
 
         do {
             results = try await helperClient.run(
-                operation: operation,
-                rootLayout: rootLayout,
-                strategies: selectedStrategies,
-                dryRun: dryRun
+                operation: enabled ? "apply" : "cleanup",
+                rootLayout: .automatic,
+                strategies: Set(EnvironmentStrategy.allCases),
+                dryRun: false
             )
+            isEnabled = enabled
+            defaults.set(enabled, forKey: Self.enabledKey)
+            statusMessage = summary(for: enabled, results: results)
         } catch {
+            statusMessage = isEnabled ? "已开启" : "已关闭"
             alertMessage = error.localizedDescription
         }
+    }
+
+    private func summary(for enabled: Bool, results: [ArtifactResult]) -> String {
+        let failed = results.filter { $0.status == .failed }.count
+        if enabled {
+            let created = results.filter { $0.status == .created }.count
+            let existing = results.filter { $0.status == .protected }.count
+            return failed == 0
+                ? "已开启：写入 \(created) 项，原已存在 \(existing) 项"
+                : "已开启：写入 \(created) 项，失败 \(failed) 项"
+        }
+
+        let removed = results.filter { $0.status == .removed }.count
+        return failed == 0
+            ? "已关闭：删除本工具创建的 \(removed) 项"
+            : "已关闭：删除 \(removed) 项，失败 \(failed) 项"
     }
 }

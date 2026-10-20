@@ -11,8 +11,6 @@
 		A10000000000000000000003 /* HelperClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000003 /* HelperClient.swift */; };
 		A10000000000000000000004 /* SimulationStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000004 /* SimulationStore.swift */; };
 		A10000000000000000000005 /* DashboardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000005 /* DashboardView.swift */; };
-		A10000000000000000000006 /* ArtifactCatalogView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000006 /* ArtifactCatalogView.swift */; };
-		A10000000000000000000007 /* ResultListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000007 /* ResultListView.swift */; };
 		A10000000000000000000008 /* HelperBridge.c in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000008 /* HelperBridge.c */; settings = {COMPILER_FLAGS = "-Wall -Wextra"; }; };
 		A10000000000000000000009 /* ArtifactCatalogTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000009 /* ArtifactCatalogTests.swift */; };
 		A1000000000000000000000A /* SimulationStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000000A /* SimulationStoreTests.swift */; };
@@ -35,8 +33,6 @@
 		A20000000000000000000003 /* HelperClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HelperClient.swift; sourceTree = "<group>"; };
 		A20000000000000000000004 /* SimulationStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SimulationStore.swift; sourceTree = "<group>"; };
 		A20000000000000000000005 /* DashboardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DashboardView.swift; sourceTree = "<group>"; };
-		A20000000000000000000006 /* ArtifactCatalogView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArtifactCatalogView.swift; sourceTree = "<group>"; };
-		A20000000000000000000007 /* ResultListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResultListView.swift; sourceTree = "<group>"; };
 		A20000000000000000000008 /* HelperBridge.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = HelperBridge.c; sourceTree = "<group>"; };
 		A20000000000000000000009 /* ArtifactCatalogTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArtifactCatalogTests.swift; sourceTree = "<group>"; };
 		A2000000000000000000000A /* SimulationStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SimulationStoreTests.swift; sourceTree = "<group>"; };
@@ -63,7 +59,7 @@
 		A50000000000000000000002 /* App */ = {isa = PBXGroup; path = App; sourceTree = "<group>"; children = (A20000000000000000000001, A50000000000000000000003, A50000000000000000000004, A50000000000000000000005, A50000000000000000000006); };
 		A50000000000000000000003 /* Models */ = {isa = PBXGroup; path = Models; sourceTree = "<group>"; children = (A20000000000000000000002,); };
 		A50000000000000000000004 /* Services */ = {isa = PBXGroup; path = Services; sourceTree = "<group>"; children = (A20000000000000000000003, A20000000000000000000004,); };
-		A50000000000000000000005 /* Views */ = {isa = PBXGroup; path = Views; sourceTree = "<group>"; children = (A20000000000000000000005, A20000000000000000000006, A20000000000000000000007,); };
+		A50000000000000000000005 /* Views */ = {isa = PBXGroup; path = Views; sourceTree = "<group>"; children = (A20000000000000000000005,); };
 		A50000000000000000000006 /* Resources */ = {isa = PBXGroup; path = Resources; sourceTree = "<group>"; children = (A2000000000000000000000B, A2000000000000000000000C, A2000000000000000000000D,); };
 		A50000000000000000000007 /* Shared */ = {isa = PBXGroup; path = Shared; sourceTree = "<group>"; children = (A20000000000000000000008, A2000000000000000000000E,); };
 		A50000000000000000000008 /* Tests */ = {isa = PBXGroup; path = Tests; sourceTree = "<group>"; children = (A20000000000000000000009, A2000000000000000000000A,); };
@@ -86,7 +82,7 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
-		A60000000000000000000001 /* Sources */ = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (A10000000000000000000001, A10000000000000000000002, A10000000000000000000003, A10000000000000000000004, A10000000000000000000005, A10000000000000000000006, A10000000000000000000007, A10000000000000000000008,); runOnlyForDeploymentPostprocessing = 0; };
+		A60000000000000000000001 /* Sources */ = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (A10000000000000000000001, A10000000000000000000002, A10000000000000000000003, A10000000000000000000004, A10000000000000000000005, A10000000000000000000008,); runOnlyForDeploymentPostprocessing = 0; };
 		A60000000000000000000003 /* Sources */ = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (A10000000000000000000009, A1000000000000000000000A,); runOnlyForDeploymentPostprocessing = 0; };
 /* End PBXSourcesBuildPhase section */
 

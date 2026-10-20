@@ -9,7 +9,7 @@ final class ArtifactCatalogTests: XCTestCase {
         XCTAssertFalse(paths.contains { $0.contains("..") })
     }
 
-    func testDangerousExecutableAndDylibPathsRemainProbeOnly() {
+    func testDangerousPathsUseSignedNonExecutableMarkers() {
         let dangerous = ArtifactCatalog.all.filter { artifact in
             artifact.path.hasSuffix(".dylib") ||
                 artifact.path.hasSuffix("frida-server") ||
@@ -20,7 +20,7 @@ final class ArtifactCatalogTests: XCTestCase {
                 artifact.path.contains("/LaunchDaemons/")
         }
         XCTAssertFalse(dangerous.isEmpty)
-        XCTAssertTrue(dangerous.allSatisfy { $0.kind == .probeOnly })
+        XCTAssertTrue(dangerous.allSatisfy { $0.kind == .markerFile })
     }
 
     func testEveryStrategyHasArtifacts() {

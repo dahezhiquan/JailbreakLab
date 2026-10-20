@@ -49,10 +49,10 @@ jobs:
       - name: Verify packages
         run: |
           set -euo pipefail
-          test -f Packages/com.securitylab.jailbreaklab_1.0.0_rootless.deb
-          test -f Packages/com.securitylab.jailbreaklab_1.0.0_rootful.deb
-          dpkg-deb --info Packages/com.securitylab.jailbreaklab_1.0.0_rootless.deb
-          dpkg-deb --info Packages/com.securitylab.jailbreaklab_1.0.0_rootful.deb
+          test -f Packages/com.securitylab.jailbreaklab_1.1.0_rootless.deb
+          test -f Packages/com.securitylab.jailbreaklab_1.1.0_rootful.deb
+          dpkg-deb --info Packages/com.securitylab.jailbreaklab_1.1.0_rootless.deb
+          dpkg-deb --info Packages/com.securitylab.jailbreaklab_1.1.0_rootful.deb
           (cd Packages && shasum -a 256 *.deb > SHA256SUMS)
           cat Packages/SHA256SUMS
 

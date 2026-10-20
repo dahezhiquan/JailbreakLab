@@ -3,21 +3,14 @@ import XCTest
 
 @MainActor
 final class SimulationStoreTests: XCTestCase {
-    func testLiveApplyRequiresAcknowledgement() {
+    func testStoreStartsIdleWithAStatusMessage() {
         let store = SimulationStore()
-        store.operationMode = .live
-        store.riskAcknowledged = false
-        XCTAssertFalse(store.canApply)
-        store.riskAcknowledged = true
-        XCTAssertTrue(store.canApply)
+        XCTAssertFalse(store.isRunning)
+        XCTAssertFalse(store.statusMessage.isEmpty)
     }
 
-    func testDisablingAllStrategiesDisablesApply() {
-        let store = SimulationStore()
-        for strategy in EnvironmentStrategy.allCases {
-            store.setStrategy(strategy, enabled: false)
-        }
-        XCTAssertFalse(store.canApply)
-        XCTAssertTrue(store.selectedArtifacts.isEmpty)
+    func testSingleSwitchCoversEveryArtifactGroup() {
+        let coveredStrategies = Set(ArtifactCatalog.all.map(\.strategy))
+        XCTAssertEqual(coveredStrategies, Set(EnvironmentStrategy.allCases))
     }
 }

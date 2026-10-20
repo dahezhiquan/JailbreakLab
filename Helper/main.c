@@ -26,12 +26,10 @@
 
 static const char *kFileSignature = "JAILBREAKLAB_ARTIFACT_V1\n";
 static const char *kDirectoryMarker = ".jailbreaklab-owned-v1";
-static const char *kCallerSuffix = "/Applications/JailbreakLab.app/JailbreakLab";
 
 typedef enum {
     KIND_FILE,
-    KIND_DIRECTORY,
-    KIND_PROBE_ONLY
+    KIND_DIRECTORY
 } artifact_kind_t;
 
 typedef struct {
@@ -42,13 +40,13 @@ typedef struct {
 
 static const artifact_t kArtifacts[] = {
     {"/var/mobile/Library/Preferences/ABPattern", "jailbreak-markers", KIND_FILE},
-    {"/usr/lib/ABDYLD.dylib", "injection-frameworks", KIND_PROBE_ONLY},
-    {"/usr/lib/ABSubLoader.dylib", "injection-frameworks", KIND_PROBE_ONLY},
-    {"/usr/sbin/frida-server", "injection-frameworks", KIND_PROBE_ONLY},
+    {"/usr/lib/ABDYLD.dylib", "injection-frameworks", KIND_FILE},
+    {"/usr/lib/ABSubLoader.dylib", "injection-frameworks", KIND_FILE},
+    {"/usr/sbin/frida-server", "injection-frameworks", KIND_FILE},
     {"/etc/apt/sources.list.d/electra.list", "package-managers", KIND_FILE},
     {"/etc/apt/sources.list.d/sileo.sources", "package-managers", KIND_FILE},
     {"/.bootstrapped_electra", "jailbreak-markers", KIND_FILE},
-    {"/usr/lib/libjailbreak.dylib", "injection-frameworks", KIND_PROBE_ONLY},
+    {"/usr/lib/libjailbreak.dylib", "injection-frameworks", KIND_FILE},
     {"/jb/lzma", "jailbreak-markers", KIND_FILE},
     {"/.cydia_no_stash", "jailbreak-markers", KIND_FILE},
     {"/.installed_unc0ver", "jailbreak-markers", KIND_FILE},
@@ -56,11 +54,11 @@ static const artifact_t kArtifacts[] = {
     {"/usr/share/jailbreak/injectme.plist", "jailbreak-markers", KIND_FILE},
     {"/etc/apt/undecimus/undecimus.list", "package-managers", KIND_FILE},
     {"/var/lib/dpkg/info/mobilesubstrate.md5sums", "package-managers", KIND_FILE},
-    {"/Library/MobileSubstrate/MobileSubstrate.dylib", "injection-frameworks", KIND_PROBE_ONLY},
+    {"/Library/MobileSubstrate/MobileSubstrate.dylib", "injection-frameworks", KIND_FILE},
     {"/jb/jailbreakd.plist", "jailbreak-markers", KIND_FILE},
-    {"/jb/amfid_payload.dylib", "injection-frameworks", KIND_PROBE_ONLY},
-    {"/jb/libjailbreak.dylib", "injection-frameworks", KIND_PROBE_ONLY},
-    {"/usr/libexec/cydia/firmware.sh", "package-managers", KIND_PROBE_ONLY},
+    {"/jb/amfid_payload.dylib", "injection-frameworks", KIND_FILE},
+    {"/jb/libjailbreak.dylib", "injection-frameworks", KIND_FILE},
+    {"/usr/libexec/cydia/firmware.sh", "package-managers", KIND_FILE},
     {"/var/lib/cydia", "package-managers", KIND_DIRECTORY},
     {"/etc/apt", "package-managers", KIND_DIRECTORY},
     {"/private/var/lib/apt", "package-managers", KIND_DIRECTORY},
@@ -69,7 +67,7 @@ static const artifact_t kArtifacts[] = {
     {"/private/var/stash", "jailbreak-markers", KIND_DIRECTORY},
     {"/private/var/lib/cydia", "package-managers", KIND_DIRECTORY},
     {"/private/var/cache/apt", "package-managers", KIND_DIRECTORY},
-    {"/private/var/log/syslog", "jailbreak-markers", KIND_PROBE_ONLY},
+    {"/private/var/log/syslog", "jailbreak-markers", KIND_FILE},
     {"/private/var/tmp/cydia.log", "package-managers", KIND_FILE},
     {"/Applications/Icy.app", "package-managers", KIND_DIRECTORY},
     {"/Applications/MxTube.app", "jailbreak-markers", KIND_DIRECTORY},
@@ -80,11 +78,11 @@ static const artifact_t kArtifacts[] = {
     {"/Applications/WinterBoard.app", "jailbreak-markers", KIND_DIRECTORY},
     {"/Applications/IntelliScreen.app", "jailbreak-markers", KIND_DIRECTORY},
     {"/private/var/mobile/Library/SBSettings/Themes", "jailbreak-markers", KIND_DIRECTORY},
-    {"/Library/MobileSubstrate/CydiaSubstrate.dylib", "injection-frameworks", KIND_PROBE_ONLY},
-    {"/System/Library/LaunchDaemons/com.ikey.bbot.plist", "jailbreak-markers", KIND_PROBE_ONLY},
-    {"/Library/MobileSubstrate/DynamicLibraries/Veency.plist", "injection-frameworks", KIND_PROBE_ONLY},
-    {"/Library/MobileSubstrate/DynamicLibraries/LiveClock.plist", "injection-frameworks", KIND_PROBE_ONLY},
-    {"/System/Library/LaunchDaemons/com.saurik.Cydia.Startup.plist", "package-managers", KIND_PROBE_ONLY},
+    {"/Library/MobileSubstrate/CydiaSubstrate.dylib", "injection-frameworks", KIND_FILE},
+    {"/System/Library/LaunchDaemons/com.ikey.bbot.plist", "jailbreak-markers", KIND_FILE},
+    {"/Library/MobileSubstrate/DynamicLibraries/Veency.plist", "injection-frameworks", KIND_FILE},
+    {"/Library/MobileSubstrate/DynamicLibraries/LiveClock.plist", "injection-frameworks", KIND_FILE},
+    {"/System/Library/LaunchDaemons/com.saurik.Cydia.Startup.plist", "package-managers", KIND_FILE},
     {"/Applications/Sileo.app", "package-managers", KIND_DIRECTORY},
     {"/var/binpack", "package-managers", KIND_DIRECTORY},
     {"/Library/PreferenceBundles/LibertyPref.bundle", "bypass-tools", KIND_DIRECTORY},
@@ -94,26 +92,26 @@ static const artifact_t kArtifacts[] = {
     {"/Library/PreferenceBundles/Cephei.bundle", "bypass-tools", KIND_DIRECTORY},
     {"/Library/PreferenceBundles/SubstitutePrefs.bundle", "injection-frameworks", KIND_DIRECTORY},
     {"/Library/PreferenceBundles/libhbangprefs.bundle", "injection-frameworks", KIND_DIRECTORY},
-    {"/usr/lib/libhooker.dylib", "injection-frameworks", KIND_PROBE_ONLY},
-    {"/usr/lib/libsubstitute.dylib", "injection-frameworks", KIND_PROBE_ONLY},
+    {"/usr/lib/libhooker.dylib", "injection-frameworks", KIND_FILE},
+    {"/usr/lib/libsubstitute.dylib", "injection-frameworks", KIND_FILE},
     {"/usr/lib/substrate", "injection-frameworks", KIND_DIRECTORY},
     {"/usr/lib/TweakInject", "injection-frameworks", KIND_DIRECTORY},
     {"/var/binpack/Applications/loader.app", "package-managers", KIND_DIRECTORY},
     {"/Applications/FlyJB.app", "bypass-tools", KIND_DIRECTORY},
     {"/Applications/Zebra.app", "package-managers", KIND_DIRECTORY},
     {"/Library/BawAppie/ABypass", "bypass-tools", KIND_DIRECTORY},
-    {"/Library/MobileSubstrate/DynamicLibraries/SSLKillSwitch2.plist", "injection-frameworks", KIND_PROBE_ONLY},
-    {"/Library/MobileSubstrate/DynamicLibraries/PreferenceLoader.plist", "injection-frameworks", KIND_PROBE_ONLY},
-    {"/Library/MobileSubstrate/DynamicLibraries/PreferenceLoader.dylib", "injection-frameworks", KIND_PROBE_ONLY},
+    {"/Library/MobileSubstrate/DynamicLibraries/SSLKillSwitch2.plist", "injection-frameworks", KIND_FILE},
+    {"/Library/MobileSubstrate/DynamicLibraries/PreferenceLoader.plist", "injection-frameworks", KIND_FILE},
+    {"/Library/MobileSubstrate/DynamicLibraries/PreferenceLoader.dylib", "injection-frameworks", KIND_FILE},
     {"/Library/MobileSubstrate/DynamicLibraries", "injection-frameworks", KIND_DIRECTORY},
     {"/var/mobile/Library/Preferences/me.jjolano.shadow.plist", "bypass-tools", KIND_FILE},
-    {"/bin/bash", "remote-shell", KIND_PROBE_ONLY},
-    {"/usr/sbin/sshd", "remote-shell", KIND_PROBE_ONLY},
-    {"/usr/libexec/ssh-keysign", "remote-shell", KIND_PROBE_ONLY},
-    {"/bin/sh", "remote-shell", KIND_PROBE_ONLY},
-    {"/etc/ssh/sshd_config", "remote-shell", KIND_PROBE_ONLY},
-    {"/usr/libexec/sftp-server", "remote-shell", KIND_PROBE_ONLY},
-    {"/usr/bin/ssh", "remote-shell", KIND_PROBE_ONLY}
+    {"/bin/bash", "remote-shell", KIND_FILE},
+    {"/usr/sbin/sshd", "remote-shell", KIND_FILE},
+    {"/usr/libexec/ssh-keysign", "remote-shell", KIND_FILE},
+    {"/bin/sh", "remote-shell", KIND_FILE},
+    {"/etc/ssh/sshd_config", "remote-shell", KIND_FILE},
+    {"/usr/libexec/sftp-server", "remote-shell", KIND_FILE},
+    {"/usr/bin/ssh", "remote-shell", KIND_FILE}
 };
 
 typedef struct {
@@ -207,7 +205,7 @@ static bool valid_group_list(const char *groups) {
 
 static bool is_rootless_available(void) {
     struct stat information;
-    return lstat("/var/jb", &information) == 0 && S_ISDIR(information.st_mode);
+    return stat("/var/jb", &information) == 0 && S_ISDIR(information.st_mode);
 }
 
 static bool remains_in_data_volume(const char *path) {
@@ -226,11 +224,23 @@ static bool effective_path_for(
     bool use_rootless = strcmp(root_mode, "rootless") == 0 ||
         (strcmp(root_mode, "auto") == 0 && is_rootless_available());
 
+    char mapped[MAX_PATH_LENGTH];
     int result;
     if (use_rootless && !remains_in_data_volume(original)) {
-        result = snprintf(output, capacity, "/var/jb%s", original);
+        char rootless_prefix[PATH_MAX];
+        if (realpath("/var/jb", rootless_prefix) == NULL) return false;
+        result = snprintf(mapped, sizeof(mapped), "%s%s", rootless_prefix, original);
     } else {
-        result = snprintf(output, capacity, "%s", original);
+        result = snprintf(mapped, sizeof(mapped), "%s", original);
+    }
+    if (result <= 0 || (size_t)result >= sizeof(mapped)) return false;
+
+    // /var is normally a symlink to /private/var. Canonicalizing this fixed
+    // system alias lets the component walker keep rejecting all symlinks.
+    if (strncmp(mapped, "/var/", 5) == 0) {
+        result = snprintf(output, capacity, "/private%s", mapped);
+    } else {
+        result = snprintf(output, capacity, "%s", mapped);
     }
     return result > 0 && (size_t)result < capacity;
 }
@@ -238,6 +248,8 @@ static bool effective_path_for(
 static int open_root(void) {
     return open("/", O_RDONLY | O_DIRECTORY | O_CLOEXEC);
 }
+
+static int create_owned_directory_component(int parent, const char *name);
 
 static bool valid_absolute_path(const char *path) {
     if (path == NULL || path[0] != '/' || path[1] == '\0') return false;
@@ -255,7 +267,8 @@ static int open_directory_component(int parent, const char *name) {
 static int open_parent_directory(
     const char *path,
     char *leaf,
-    size_t leaf_capacity
+    size_t leaf_capacity,
+    bool create_missing
 ) {
     if (!valid_absolute_path(path)) {
         errno = EINVAL;
@@ -281,6 +294,9 @@ static int open_parent_directory(
         }
 
         int next_descriptor = open_directory_component(current, component);
+        if (next_descriptor < 0 && errno == ENOENT && create_missing) {
+            next_descriptor = create_owned_directory_component(current, component);
+        }
         close(current);
         if (next_descriptor < 0) return -1;
         current = next_descriptor;
@@ -319,9 +335,66 @@ static bool fd_has_exact_signature(int descriptor, const char *signature) {
     return matches;
 }
 
+static int create_owned_directory_component(int parent, const char *name) {
+    if (mkdirat(parent, name, 0755) != 0) return -1;
+
+    int directory = openat(parent, name, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+    if (directory < 0) {
+        unlinkat(parent, name, AT_REMOVEDIR);
+        return -1;
+    }
+
+    int marker = openat(
+        directory, kDirectoryMarker,
+        O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0600
+    );
+    bool succeeded = marker >= 0 &&
+        write_all(marker, kFileSignature, strlen(kFileSignature)) &&
+        fsync(marker) == 0;
+    if (marker >= 0) close(marker);
+    if (!succeeded) {
+        int saved = errno;
+        unlinkat(directory, kDirectoryMarker, 0);
+        close(directory);
+        unlinkat(parent, name, AT_REMOVEDIR);
+        errno = saved;
+        return -1;
+    }
+    return directory;
+}
+
+static bool directory_is_owned(int directory) {
+    int marker = openat(directory, kDirectoryMarker, O_RDONLY | O_NOFOLLOW | O_CLOEXEC);
+    bool owned = marker >= 0 && fd_has_exact_signature(marker, kFileSignature);
+    if (marker >= 0) close(marker);
+    return owned;
+}
+
+static bool dry_run_can_create(const char *path, char *message, size_t capacity) {
+    if (!valid_absolute_path(path)) {
+        errno = EINVAL;
+        snprintf(message, capacity, "invalid path");
+        return false;
+    }
+    struct stat information;
+    if (lstat(path, &information) == 0) {
+        errno = EEXIST;
+        snprintf(message, capacity, "existing object would not be modified");
+        return false;
+    }
+    if (errno != ENOENT) {
+        snprintf(message, capacity, "cannot inspect target: %s", strerror(errno));
+        return false;
+    }
+    snprintf(message, capacity, "would create signed marker and missing parent directories");
+    return true;
+}
+
 static bool create_marker_file(const char *path, bool dry_run, char *message, size_t capacity) {
+    if (dry_run) return dry_run_can_create(path, message, capacity);
+
     char leaf[NAME_MAX + 1];
-    int parent = open_parent_directory(path, leaf, sizeof(leaf));
+    int parent = open_parent_directory(path, leaf, sizeof(leaf), true);
     if (parent < 0) {
         snprintf(message, capacity, "cannot open parent: %s", strerror(errno));
         return false;
@@ -329,7 +402,16 @@ static bool create_marker_file(const char *path, bool dry_run, char *message, si
 
     struct stat information;
     if (fstatat(parent, leaf, &information, AT_SYMLINK_NOFOLLOW) == 0) {
+        char signature[MAX_PATH_LENGTH + 64];
+        snprintf(signature, sizeof(signature), "%s%s\n", kFileSignature, path);
+        int existing = openat(parent, leaf, O_RDONLY | O_NOFOLLOW | O_CLOEXEC);
+        bool owned = existing >= 0 && fd_has_exact_signature(existing, signature);
+        if (existing >= 0) close(existing);
         close(parent);
+        if (owned) {
+            snprintf(message, capacity, "signed marker file already exists");
+            return true;
+        }
         snprintf(message, capacity, "existing object was not modified");
         errno = EEXIST;
         return false;
@@ -341,12 +423,6 @@ static bool create_marker_file(const char *path, bool dry_run, char *message, si
         snprintf(message, capacity, "cannot inspect target: %s", strerror(errno));
         return false;
     }
-    if (dry_run) {
-        close(parent);
-        snprintf(message, capacity, "would create signed marker file");
-        return true;
-    }
-
     int descriptor = openat(
         parent, leaf, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0644
     );
@@ -378,8 +454,10 @@ static bool create_marker_file(const char *path, bool dry_run, char *message, si
 }
 
 static bool create_marker_directory(const char *path, bool dry_run, char *message, size_t capacity) {
+    if (dry_run) return dry_run_can_create(path, message, capacity);
+
     char leaf[NAME_MAX + 1];
-    int parent = open_parent_directory(path, leaf, sizeof(leaf));
+    int parent = open_parent_directory(path, leaf, sizeof(leaf), true);
     if (parent < 0) {
         snprintf(message, capacity, "cannot open parent: %s", strerror(errno));
         return false;
@@ -387,7 +465,14 @@ static bool create_marker_directory(const char *path, bool dry_run, char *messag
 
     struct stat information;
     if (fstatat(parent, leaf, &information, AT_SYMLINK_NOFOLLOW) == 0) {
+        int existing = openat(parent, leaf, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+        bool owned = existing >= 0 && directory_is_owned(existing);
+        if (existing >= 0) close(existing);
         close(parent);
+        if (owned) {
+            snprintf(message, capacity, "owned marker directory already exists");
+            return true;
+        }
         snprintf(message, capacity, "existing object was not modified");
         errno = EEXIST;
         return false;
@@ -399,12 +484,6 @@ static bool create_marker_directory(const char *path, bool dry_run, char *messag
         snprintf(message, capacity, "cannot inspect target: %s", strerror(errno));
         return false;
     }
-    if (dry_run) {
-        close(parent);
-        snprintf(message, capacity, "would create owned marker directory");
-        return true;
-    }
-
     if (mkdirat(parent, leaf, 0755) != 0) {
         int saved = errno;
         close(parent);
@@ -446,7 +525,7 @@ static bool create_marker_directory(const char *path, bool dry_run, char *messag
 
 static bool remove_marker_file(const char *path, bool dry_run, char *message, size_t capacity) {
     char leaf[NAME_MAX + 1];
-    int parent = open_parent_directory(path, leaf, sizeof(leaf));
+    int parent = open_parent_directory(path, leaf, sizeof(leaf), false);
     if (parent < 0) {
         if (errno == ENOENT) {
             snprintf(message, capacity, "target is absent");
@@ -497,7 +576,7 @@ static bool remove_marker_file(const char *path, bool dry_run, char *message, si
 
 static bool remove_marker_directory(const char *path, bool dry_run, char *message, size_t capacity) {
     char leaf[NAME_MAX + 1];
-    int parent = open_parent_directory(path, leaf, sizeof(leaf));
+    int parent = open_parent_directory(path, leaf, sizeof(leaf), false);
     if (parent < 0) {
         if (errno == ENOENT) {
             snprintf(message, capacity, "target is absent");
@@ -518,9 +597,7 @@ static bool remove_marker_directory(const char *path, bool dry_run, char *messag
         }
         return false;
     }
-    int marker = openat(directory, kDirectoryMarker, O_RDONLY | O_NOFOLLOW | O_CLOEXEC);
-    bool owned = marker >= 0 && fd_has_exact_signature(marker, kFileSignature);
-    if (marker >= 0) close(marker);
+    bool owned = directory_is_owned(directory);
     if (!owned) {
         close(directory);
         close(parent);
@@ -571,6 +648,57 @@ static bool remove_marker_directory(const char *path, bool dry_run, char *messag
     return directory_removed;
 }
 
+static void prune_owned_ancestors(const char *path) {
+    char current[MAX_PATH_LENGTH];
+    if (snprintf(current, sizeof(current), "%s", path) >= (int)sizeof(current)) return;
+
+    char *separator = strrchr(current, '/');
+    if (separator == NULL || separator == current) return;
+    *separator = '\0';
+
+    while (current[0] == '/' && current[1] != '\0') {
+        char leaf[NAME_MAX + 1];
+        int parent = open_parent_directory(current, leaf, sizeof(leaf), false);
+        if (parent < 0) return;
+
+        int directory = openat(parent, leaf, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+        if (directory < 0 || !directory_is_owned(directory)) {
+            if (directory >= 0) close(directory);
+            close(parent);
+            return;
+        }
+
+        DIR *stream = fdopendir(dup(directory));
+        bool empty_except_marker = stream != NULL;
+        if (stream != NULL) {
+            struct dirent *entry;
+            while ((entry = readdir(stream)) != NULL) {
+                if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0 ||
+                    strcmp(entry->d_name, kDirectoryMarker) == 0) {
+                    continue;
+                }
+                empty_except_marker = false;
+                break;
+            }
+            closedir(stream);
+        }
+        if (!empty_except_marker || unlinkat(directory, kDirectoryMarker, 0) != 0) {
+            close(directory);
+            close(parent);
+            return;
+        }
+
+        close(directory);
+        bool removed = unlinkat(parent, leaf, AT_REMOVEDIR) == 0;
+        close(parent);
+        if (!removed) return;
+
+        separator = strrchr(current, '/');
+        if (separator == NULL || separator == current) return;
+        *separator = '\0';
+    }
+}
+
 static void probe_artifact(const artifact_t *artifact, const char *effective_path) {
     struct stat information;
     int result = lstat(effective_path, &information);
@@ -584,14 +712,6 @@ static void probe_artifact(const artifact_t *artifact, const char *effective_pat
 }
 
 static void apply_artifact(const artifact_t *artifact, const char *effective_path, bool dry_run) {
-    if (artifact->kind == KIND_PROBE_ONLY) {
-        emit_result(
-            artifact->path, effective_path, "probe_only",
-            "executable, dynamic-library, or system-service path is never synthesized"
-        );
-        return;
-    }
-
     char message[1024];
     bool succeeded = artifact->kind == KIND_FILE
         ? create_marker_file(effective_path, dry_run, message, sizeof(message))
@@ -606,17 +726,13 @@ static void apply_artifact(const artifact_t *artifact, const char *effective_pat
 }
 
 static void cleanup_artifact(const artifact_t *artifact, const char *effective_path, bool dry_run) {
-    if (artifact->kind == KIND_PROBE_ONLY) {
-        emit_result(artifact->path, effective_path, "probe_only", "probe-only paths are never removed");
-        return;
-    }
-
     char message[1024];
     bool succeeded = artifact->kind == KIND_FILE
         ? remove_marker_file(effective_path, dry_run, message, sizeof(message))
         : remove_marker_directory(effective_path, dry_run, message, sizeof(message));
     if (succeeded) {
         emit_result(artifact->path, effective_path, dry_run ? "planned" : "removed", message);
+        if (!dry_run) prune_owned_ancestors(effective_path);
     } else if (errno == ENOENT) {
         emit_result(artifact->path, effective_path, "absent", message);
     } else if (errno == EPERM || errno == ENOTEMPTY) {
@@ -666,10 +782,21 @@ static bool caller_is_expected_app(void) {
     int length = process_path(getppid(), executable_path, (uint32_t)sizeof(executable_path));
     if (length <= 0) return false;
 
-    size_t path_length = strlen(executable_path);
-    size_t suffix_length = strlen(kCallerSuffix);
-    return path_length >= suffix_length &&
-        strcmp(executable_path + path_length - suffix_length, kCallerSuffix) == 0;
+    static const char *allowed_paths[] = {
+        "/Applications/JailbreakLab.app/JailbreakLab",
+        "/var/jb/Applications/JailbreakLab.app/JailbreakLab",
+        "/private/var/jb/Applications/JailbreakLab.app/JailbreakLab"
+    };
+    for (size_t index = 0; index < ARRAY_COUNT(allowed_paths); index++) {
+        if (strcmp(executable_path, allowed_paths[index]) == 0) return true;
+    }
+
+    char rootless_app[PATH_MAX];
+    if (realpath("/var/jb/Applications/JailbreakLab.app/JailbreakLab", rootless_app) != NULL &&
+        strcmp(executable_path, rootless_app) == 0) {
+        return true;
+    }
+    return false;
 }
 
 int main(int argument_count, char **arguments) {
