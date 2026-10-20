@@ -53,7 +53,7 @@ jobs:
           test -f Packages/com.securitylab.jailbreaklab_1.0.0_rootful.deb
           dpkg-deb --info Packages/com.securitylab.jailbreaklab_1.0.0_rootless.deb
           dpkg-deb --info Packages/com.securitylab.jailbreaklab_1.0.0_rootful.deb
-          shasum -a 256 Packages/*.deb > Packages/SHA256SUMS
+          (cd Packages && shasum -a 256 *.deb > SHA256SUMS)
           cat Packages/SHA256SUMS
 
       - name: Upload install packages
