@@ -11,10 +11,9 @@ project:
 	@test -f $(PROJECT)/project.pbxproj || { echo "missing $(PROJECT)"; exit 1; }
 
 app: project
-	xcodebuild -project $(PROJECT) -target $(TARGET) -configuration Release -sdk iphoneos -derivedDataPath $(BUILD_DIR)/DerivedData CODE_SIGNING_ALLOWED=NO build
 	rm -rf $(APP)
 	mkdir -p $(dir $(APP))
-	cp -R $(BUILD_DIR)/DerivedData/Build/Products/Release-iphoneos/JailbreakLab.app $(APP)
+	xcodebuild -project $(PROJECT) -target $(TARGET) -configuration Release -sdk iphoneos CONFIGURATION_BUILD_DIR=$(dir $(APP)) CODE_SIGNING_ALLOWED=NO build
 
 helper:
 	@xcrun --sdk iphoneos --find clang >/dev/null || { echo "Full Xcode with iPhoneOS SDK is required"; exit 1; }
