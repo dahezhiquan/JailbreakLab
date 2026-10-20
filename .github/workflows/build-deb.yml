@@ -76,7 +76,7 @@ jobs:
           set -euo pipefail
           publish_dir=$(mktemp -d)
           cp Packages/*.deb Packages/SHA256SUMS "${publish_dir}/"
-          print -r -- "${GITHUB_SHA}" > "${publish_dir}/SOURCE_COMMIT"
+          printf '%s\n' "${GITHUB_SHA}" > "${publish_dir}/SOURCE_COMMIT"
           git switch --orphan codex-build-output
           git rm -rf .
           cp "${publish_dir}"/* .
