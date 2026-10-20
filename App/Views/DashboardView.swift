@@ -18,7 +18,7 @@ struct DashboardView: View {
 
                 strategyRow(
                     title: "受限目录是否可写",
-                    detail: "使 /jb/ 具有可写权限",
+                    detail: "使 /jb/ 具有可写权限（rootless 自动映射）",
                     isOn: store.isRestrictedWriteEnabled,
                     status: store.restrictedWriteStatus,
                     symbol: "folder.badge.gearshape"

@@ -86,8 +86,9 @@ final class SimulationStore: ObservableObject {
             let rootStatus = rootMessage.contains("read-only")
                 ? "根文件系统只读"
                 : (rootMessage.contains("writable") ? "根文件系统可写" : "根文件系统状态未知")
+            let writablePath = operationResults.first(where: { $0.path == "/jb" })?.effectivePath ?? "/jb"
             restrictedWriteStatus = enabled
-                ? "已开启：\(rootStatus)；/jb/ 写入测试成功"
+                ? "已开启：\(rootStatus)；\(writablePath) 写入测试成功"
                 : "已关闭：/jb/ 已恢复"
         } catch {
             restrictedWriteStatus = isRestrictedWriteEnabled ? "已开启：/jb/ 可写" : "已关闭"
