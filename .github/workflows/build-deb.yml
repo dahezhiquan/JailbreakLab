@@ -47,7 +47,7 @@ jobs:
       - name: Build signed deb packages
         run: |
           set -euo pipefail
-          make package
+          make package 2>&1 | tee /tmp/jailbreaklab-build.log
 
       - name: Verify packages
         run: |
@@ -70,17 +70,21 @@ jobs:
           retention-days: 14
 
       - name: Publish temporary SSH-downloadable output
+        if: always()
         env:
           GH_TOKEN: ${{ github.token }}
+          JOB_STATUS: ${{ job.status }}
         run: |
           set -euo pipefail
           publish_dir=$(mktemp -d)
-          cp Packages/*.deb Packages/SHA256SUMS "${publish_dir}/"
+          cp /tmp/jailbreaklab-build.log "${publish_dir}/" 2>/dev/null || true
+          cp Packages/*.deb Packages/SHA256SUMS "${publish_dir}/" 2>/dev/null || true
           printf '%s\n' "${GITHUB_SHA}" > "${publish_dir}/SOURCE_COMMIT"
+          printf '%s\n' "${JOB_STATUS}" > "${publish_dir}/JOB_STATUS"
           git switch --orphan codex-build-output
           git rm -rf .
           cp "${publish_dir}"/* .
-          git add .
+          git add -f .
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
           git commit -m "Build packages for ${GITHUB_SHA}"
