@@ -1,9 +1,10 @@
 #include <dirent.h>
+#include <dlfcn.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <limits.h>
-#include <libproc.h>
 #include <stdbool.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -21,6 +22,7 @@
 
 #define ARRAY_COUNT(value) (sizeof(value) / sizeof((value)[0]))
 #define MAX_PATH_LENGTH 1024
+#define PROCESS_PATH_BUFFER_SIZE 4096
 
 static const char *kFileSignature = "JAILBREAKLAB_ARTIFACT_V1\n";
 static const char *kDirectoryMarker = ".jailbreaklab-owned-v1";
@@ -654,9 +656,14 @@ static bool parse_options(int argument_count, char **arguments, options_t *optio
 }
 
 static bool caller_is_expected_app(void) {
-    char executable_path[PROC_PIDPATHINFO_MAXSIZE];
+    typedef int (*process_path_function_t)(int, void *, uint32_t);
+    process_path_function_t process_path =
+        (process_path_function_t)dlsym(RTLD_DEFAULT, "proc_pidpath");
+    if (process_path == NULL) return false;
+
+    char executable_path[PROCESS_PATH_BUFFER_SIZE];
     memset(executable_path, 0, sizeof(executable_path));
-    int length = proc_pidpath(getppid(), executable_path, sizeof(executable_path));
+    int length = process_path(getppid(), executable_path, (uint32_t)sizeof(executable_path));
     if (length <= 0) return false;
 
     size_t path_length = strlen(executable_path);
