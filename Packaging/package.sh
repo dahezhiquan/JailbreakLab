@@ -50,7 +50,7 @@ build_package() {
   cat > "${stage}/DEBIAN/control" <<CONTROL
 Package: com.securitylab.jailbreaklab.${scheme}
 Name: Jailbreak Lab (${scheme})
-Version: 1.3.0
+Version: 1.4.0
 Architecture: ${architecture}
 Description: Controlled jailbreak artifact simulator for owned security test devices.
 Maintainer: Security Lab
@@ -74,6 +74,7 @@ POSTINST
 #!/bin/sh
 case "\${1:-}" in
   remove|deconfigure)
+    '${installed_helper}' --operation disable-symlinks --root-mode auto --groups jailbreak-markers --live >/dev/null 2>&1 || true
     '${installed_helper}' --operation disable-write-remove --root-mode auto --groups jailbreak-markers --live >/dev/null 2>&1 || true
     ;;
 esac
@@ -88,7 +89,7 @@ exit 0
 POSTRM
   chmod 0755 "${stage}/DEBIAN/postrm"
 
-  local output="${package_root}/com.securitylab.jailbreaklab_1.3.0_${scheme}.deb"
+  local output="${package_root}/com.securitylab.jailbreaklab_1.4.0_${scheme}.deb"
   dpkg-deb --root-owner-group --build "${stage}" "${output}"
   print "created ${output}"
 }

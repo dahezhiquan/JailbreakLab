@@ -41,6 +41,11 @@ print -r -- "${write_output}" | grep -q '"path":"/private"'
 print -r -- "${write_output}" | grep -q '"path":"/jb"'
 [[ $(print -r -- "${write_output}" | grep -c '^{') -eq 4 ]]
 
+symlink_output=$("${binary}" --operation enable-symlinks --root-mode rootful --groups jailbreak-markers --dry-run)
+print -r -- "${symlink_output}" | grep -q '"path":"/Applications"'
+print -r -- "${symlink_output}" | grep -q '"path":"/var/lib/undecimus/apt"'
+[[ $(print -r -- "${symlink_output}" | grep -c '^{') -eq 7 ]]
+
 if "${binary}" --operation apply --root-mode rootful --groups jailbreak-markers --live >/dev/null 2>&1; then
   print -u2 "unauthorized live operation was accepted"
   exit 1
@@ -53,6 +58,11 @@ fi
 
 if [[ ${EUID} -ne 0 ]] && "${binary}" --operation disable-write --root-mode rootful --groups jailbreak-markers --live >/dev/null 2>&1; then
   print -u2 "unauthorized restricted-write restore was accepted"
+  exit 1
+fi
+
+if "${binary}" --operation enable-symlinks --root-mode rootful --groups jailbreak-markers --live >/dev/null 2>&1; then
+  print -u2 "unauthorized symlink operation was accepted"
   exit 1
 fi
 

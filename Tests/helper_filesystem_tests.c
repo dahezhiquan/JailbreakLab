@@ -82,6 +82,61 @@ int main(void) {
     assert(strcmp(private_path, "/private") == 0);
     assert(rmdir(restricted_path) == 0);
 
+    int test_root = open(root, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+    assert(test_root >= 0);
+    assert(mkdirat(test_root, "original", 0700) == 0);
+    struct stat original_information;
+    assert(fstatat(test_root, "original", &original_information, AT_SYMLINK_NOFOLLOW) == 0);
+    symlink_operation_result_t link_result = enable_symlink_at(
+        test_root, "original", 0, false,
+        (uint64_t)original_information.st_dev,
+        (uint64_t)original_information.st_ino,
+        message, sizeof(message)
+    );
+    assert(link_result == SYMLINK_OPERATION_CHANGED);
+    assert(fstatat(test_root, "original", &information, AT_SYMLINK_NOFOLLOW) == 0);
+    assert(S_ISLNK(information.st_mode));
+    link_result = enable_symlink_at(
+        test_root, "original", 0, false,
+        (uint64_t)original_information.st_dev,
+        (uint64_t)original_information.st_ino,
+        message, sizeof(message)
+    );
+    assert(link_result == SYMLINK_OPERATION_ALREADY);
+    link_result = disable_symlink_at(
+        test_root, "original", 0, false,
+        (uint64_t)original_information.st_dev,
+        (uint64_t)original_information.st_ino,
+        message, sizeof(message)
+    );
+    assert(link_result == SYMLINK_OPERATION_CHANGED);
+    assert(fstatat(test_root, "original", &information, AT_SYMLINK_NOFOLLOW) == 0);
+    assert(S_ISDIR(information.st_mode));
+    assert((uint64_t)information.st_ino == (uint64_t)original_information.st_ino);
+    assert(unlinkat(test_root, "original", AT_REMOVEDIR) == 0);
+
+    link_result = enable_symlink_at(
+        test_root, "missing-link", 1, true, 0, 0, message, sizeof(message)
+    );
+    assert(link_result == SYMLINK_OPERATION_CHANGED);
+    assert(fstatat(test_root, "missing-link", &information, AT_SYMLINK_NOFOLLOW) == 0);
+    assert(S_ISLNK(information.st_mode));
+    link_result = disable_symlink_at(
+        test_root, "missing-link", 1, true, 0, 0, message, sizeof(message)
+    );
+    assert(link_result == SYMLINK_OPERATION_CHANGED);
+    assert(fstatat(test_root, "missing-link", &information, AT_SYMLINK_NOFOLLOW) != 0);
+    assert(errno == ENOENT);
+
+    assert(symlinkat("external", test_root, "external-link") == 0);
+    link_result = enable_symlink_at(
+        test_root, "external-link", 2, true, 0, 0, message, sizeof(message)
+    );
+    assert(link_result == SYMLINK_OPERATION_FAILED);
+    assert(symlink_destination_matches(test_root, "external-link", "external"));
+    assert(unlinkat(test_root, "external-link", 0) == 0);
+    close(test_root);
+
     assert(rmdir(root) == 0);
     puts("helper filesystem tests passed");
     return 0;

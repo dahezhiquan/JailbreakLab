@@ -30,6 +30,19 @@ struct DashboardView: View {
                         await store.setRestrictedWriteEnabled(enabled)
                     }
                 }
+
+                Section {
+                    strategyRows(
+                        title: "异常符号链接",
+                        detail: "构造 7 个关键目录符号链接",
+                        isOn: store.isAbnormalSymlinksEnabled,
+                        status: store.abnormalSymlinksStatus,
+                        details: store.abnormalSymlinksDetails,
+                        symbol: "link.badge.plus"
+                    ) { enabled in
+                        await store.setAbnormalSymlinksEnabled(enabled)
+                    }
+                }
             }
             .navigationTitle("Jailbreak Lab")
             .alert(

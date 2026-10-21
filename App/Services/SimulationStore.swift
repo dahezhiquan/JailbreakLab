@@ -8,6 +8,9 @@ final class SimulationStore: ObservableObject {
     @Published private(set) var isRestrictedWriteEnabled: Bool
     @Published private(set) var restrictedWriteStatus: String
     @Published private(set) var restrictedWriteDetails: [String]
+    @Published private(set) var isAbnormalSymlinksEnabled: Bool
+    @Published private(set) var abnormalSymlinksStatus: String
+    @Published private(set) var abnormalSymlinksDetails: [String]
     @Published private(set) var results: [ArtifactResult] = []
     @Published private(set) var isRunning = false
     @Published var alertMessage: String?
@@ -16,15 +19,24 @@ final class SimulationStore: ObservableObject {
     private let defaults = UserDefaults.standard
     private static let suspiciousFilesKey = "SuspiciousFilesEnvironmentEnabled"
     private static let restrictedWriteKey = "RestrictedWriteEnvironmentEnabled"
+    private static let abnormalSymlinksKey = "AbnormalSymlinksEnvironmentEnabled"
 
     init() {
         let suspiciousFilesEnabled = UserDefaults.standard.bool(forKey: Self.suspiciousFilesKey)
         let restrictedWriteEnabled = UserDefaults.standard.bool(forKey: Self.restrictedWriteKey)
+        let abnormalSymlinksEnabled = UserDefaults.standard.bool(forKey: Self.abnormalSymlinksKey)
         isSuspiciousFilesEnabled = suspiciousFilesEnabled
         suspiciousFilesStatus = suspiciousFilesEnabled ? "已开启" : "已关闭"
         isRestrictedWriteEnabled = restrictedWriteEnabled
         restrictedWriteStatus = restrictedWriteEnabled ? "已开启：等待刷新三个目录状态" : "已关闭"
         restrictedWriteDetails = restrictedWriteEnabled
+            ? ["上次已开启；重新切换开关可刷新逐项结果"]
+            : []
+        isAbnormalSymlinksEnabled = abnormalSymlinksEnabled
+        abnormalSymlinksStatus = abnormalSymlinksEnabled
+            ? "已开启：等待刷新 7 个路径状态"
+            : "已关闭"
+        abnormalSymlinksDetails = abnormalSymlinksEnabled
             ? ["上次已开启；重新切换开关可刷新逐项结果"]
             : []
     }
@@ -35,9 +47,23 @@ final class SimulationStore: ObservableObject {
         defer { isRunning = false }
         suspiciousFilesStatus = enabled ? "正在写入可疑路径…" : "正在删除本工具创建的路径…"
         let preserveRestrictedWrite = !enabled && isRestrictedWriteEnabled
+        let preserveAbnormalSymlinks = isAbnormalSymlinksEnabled
         var restrictedWriteTemporarilyDisabled = false
+        var abnormalSymlinksTemporarilyDisabled = false
 
         do {
+            if preserveAbnormalSymlinks {
+                let restoreResults = try await runAbnormalSymlinks(operation: "disable-symlinks")
+                let restoreTargets = symlinkTargets(in: restoreResults)
+                abnormalSymlinksDetails = operationDetails(from: restoreTargets, enabling: false)
+                let failures = restoreTargets.filter(isOperationFailure)
+                guard failures.isEmpty else {
+                    abnormalSymlinksStatus = "恢复未完成：失败 \(failures.count)/7"
+                    throw HelperClientError.operationRejected("先恢复异常符号链接时失败")
+                }
+                abnormalSymlinksTemporarilyDisabled = true
+            }
+
             if preserveRestrictedWrite {
                 let restoreResults = try await runRestrictedWrite(operation: "disable-write")
                 let restoreTargets = restrictedTargets(in: restoreResults)
@@ -64,9 +90,16 @@ final class SimulationStore: ObservableObject {
                 restrictedWriteTemporarilyDisabled = false
                 try await reenableRestrictedWriteEnvironment()
             }
+            if preserveAbnormalSymlinks {
+                abnormalSymlinksTemporarilyDisabled = false
+                try await reenableAbnormalSymlinksEnvironment()
+            }
         } catch {
             if restrictedWriteTemporarilyDisabled {
                 try? await reenableRestrictedWriteEnvironment()
+            }
+            if abnormalSymlinksTemporarilyDisabled {
+                try? await reenableAbnormalSymlinksEnvironment()
             }
             suspiciousFilesStatus = isSuspiciousFilesEnabled ? "已开启" : "已关闭"
             if alertMessage == nil {
@@ -136,7 +169,80 @@ final class SimulationStore: ObservableObject {
         }
     }
 
+    func setAbnormalSymlinksEnabled(_ enabled: Bool) async {
+        guard enabled != isAbnormalSymlinksEnabled, !isRunning else { return }
+        isRunning = true
+        defer { isRunning = false }
+        abnormalSymlinksStatus = enabled
+            ? "正在逐项构造 7 个符号链接…"
+            : "正在恢复 7 个原始路径…"
+        abnormalSymlinksDetails = []
+
+        do {
+            let operationResults = try await runAbnormalSymlinks(
+                operation: enabled ? "enable-symlinks" : "disable-symlinks"
+            )
+            let targetResults = symlinkTargets(in: operationResults)
+            results = operationResults
+            abnormalSymlinksDetails = operationDetails(from: targetResults, enabling: enabled)
+
+            if enabled {
+                let succeeded = targetResults.filter(isOperationEnableSuccess).count
+                if succeeded == 0 {
+                    let rollbackResults = try? await runAbnormalSymlinks(operation: "disable-symlinks")
+                    if let rollbackResults {
+                        abnormalSymlinksDetails += operationDetails(
+                            from: symlinkTargets(in: rollbackResults),
+                            enabling: false
+                        )
+                    }
+                    isAbnormalSymlinksEnabled = false
+                    defaults.set(false, forKey: Self.abnormalSymlinksKey)
+                    abnormalSymlinksStatus = "开启失败：成功 0/7，已尝试回滚"
+                    throw HelperClientError.operationRejected("7 个路径都未能构造符号链接")
+                }
+
+                isAbnormalSymlinksEnabled = true
+                defaults.set(true, forKey: Self.abnormalSymlinksKey)
+                abnormalSymlinksStatus = "已开启：成功 \(succeeded)/7"
+                if succeeded < targetResults.count {
+                    alertMessage = "只有 \(succeeded)/7 个符号链接构造成功，请查看逐项结果。"
+                }
+            } else {
+                let failures = targetResults.filter(isOperationFailure)
+                if failures.isEmpty {
+                    isAbnormalSymlinksEnabled = false
+                    defaults.set(false, forKey: Self.abnormalSymlinksKey)
+                    abnormalSymlinksStatus = "已关闭：恢复 \(targetResults.count)/7"
+                } else {
+                    isAbnormalSymlinksEnabled = true
+                    defaults.set(true, forKey: Self.abnormalSymlinksKey)
+                    abnormalSymlinksStatus = "恢复未完成：失败 \(failures.count)/7"
+                    alertMessage = "有 \(failures.count) 个路径未能恢复，开关保持开启，可再次尝试关闭。"
+                }
+            }
+        } catch {
+            if abnormalSymlinksStatus.hasPrefix("正在") {
+                abnormalSymlinksStatus = isAbnormalSymlinksEnabled
+                    ? "已开启：恢复前状态"
+                    : "已关闭"
+            }
+            if alertMessage == nil {
+                alertMessage = error.localizedDescription
+            }
+        }
+    }
+
     private func runRestrictedWrite(operation: String) async throws -> [ArtifactResult] {
+        try await helperClient.run(
+            operation: operation,
+            rootLayout: .automatic,
+            strategies: Set(EnvironmentStrategy.allCases),
+            dryRun: false
+        )
+    }
+
+    private func runAbnormalSymlinks(operation: String) async throws -> [ArtifactResult] {
         try await helperClient.run(
             operation: operation,
             rootLayout: .automatic,
@@ -166,17 +272,38 @@ final class SimulationStore: ObservableObject {
         }
     }
 
+    private func reenableAbnormalSymlinksEnvironment() async throws {
+        let operationResults = try await runAbnormalSymlinks(operation: "enable-symlinks")
+        let targetResults = symlinkTargets(in: operationResults)
+        let succeeded = targetResults.filter(isOperationEnableSuccess).count
+        abnormalSymlinksDetails = operationDetails(from: targetResults, enabling: true)
+        guard succeeded > 0 else {
+            _ = try? await runAbnormalSymlinks(operation: "disable-symlinks")
+            isAbnormalSymlinksEnabled = false
+            defaults.set(false, forKey: Self.abnormalSymlinksKey)
+            abnormalSymlinksStatus = "已关闭：符号链接环境未能保留"
+            throw HelperClientError.operationRejected("7 个路径都未能构造符号链接")
+        }
+
+        isAbnormalSymlinksEnabled = true
+        defaults.set(true, forKey: Self.abnormalSymlinksKey)
+        abnormalSymlinksStatus = "已开启：成功 \(succeeded)/7"
+        if succeeded < 7 {
+            alertMessage = "只有 \(succeeded)/7 个符号链接构造成功，请查看逐项结果。"
+        }
+    }
+
     private func restrictedTargets(in results: [ArtifactResult]) -> [ArtifactResult] {
         let paths: Set<String> = ["/root", "/private", "/jb"]
         return results.filter { paths.contains($0.path) }
     }
 
     private func isRestrictedEnableSuccess(_ result: ArtifactResult) -> Bool {
-        result.status == .created || result.status == .alreadyPresent
+        isOperationEnableSuccess(result)
     }
 
     private func isRestrictedFailure(_ result: ArtifactResult) -> Bool {
-        result.status == .failed || result.status == .protected
+        isOperationFailure(result)
     }
 
     private func restrictedSummary(from results: [ArtifactResult], enabling: Bool) -> String {
@@ -197,10 +324,38 @@ final class SimulationStore: ObservableObject {
         from results: [ArtifactResult],
         enabling: Bool
     ) -> [String] {
+        operationDetails(from: results, enabling: enabling)
+    }
+
+    private func symlinkTargets(in results: [ArtifactResult]) -> [ArtifactResult] {
+        let paths: Set<String> = [
+            "/Applications",
+            "/Library/Ringtones",
+            "/Library/Wallpaper",
+            "/usr/include",
+            "/usr/libexec",
+            "/usr/share",
+            "/var/lib/undecimus/apt"
+        ]
+        return results.filter { paths.contains($0.path) }
+    }
+
+    private func isOperationEnableSuccess(_ result: ArtifactResult) -> Bool {
+        result.status == .created || result.status == .alreadyPresent
+    }
+
+    private func isOperationFailure(_ result: ArtifactResult) -> Bool {
+        result.status == .failed || result.status == .protected
+    }
+
+    private func operationDetails(
+        from results: [ArtifactResult],
+        enabling: Bool
+    ) -> [String] {
         results.map { result in
             let succeeded = enabling
-                ? isRestrictedEnableSuccess(result)
-                : !isRestrictedFailure(result)
+                ? isOperationEnableSuccess(result)
+                : !isOperationFailure(result)
             let symbol = succeeded ? "✓" : "✕"
             let mapped = result.path == result.effectivePath
                 ? result.path
