@@ -56,10 +56,12 @@ jobs:
           test -f Packages/com.securitylab.jailbreaklab_1.5.0_rootful.deb
           dpkg-deb --info Packages/com.securitylab.jailbreaklab_1.5.0_rootless.deb
           dpkg-deb --info Packages/com.securitylab.jailbreaklab_1.5.0_rootful.deb
-          dpkg-deb --contents Packages/com.securitylab.jailbreaklab_1.5.0_rootless.deb | grep -q './var/jb/Library/MobileSubstrate/DynamicLibraries/JailbreakLabShadow.dylib'
-          dpkg-deb --contents Packages/com.securitylab.jailbreaklab_1.5.0_rootless.deb | grep -q './var/jb/Library/MobileSubstrate/DynamicLibraries/JailbreakLabShadow.plist'
-          dpkg-deb --contents Packages/com.securitylab.jailbreaklab_1.5.0_rootful.deb | grep -q './Library/MobileSubstrate/DynamicLibraries/JailbreakLabShadow.dylib'
-          dpkg-deb --contents Packages/com.securitylab.jailbreaklab_1.5.0_rootful.deb | grep -q './Library/MobileSubstrate/DynamicLibraries/JailbreakLabShadow.plist'
+          dpkg-deb --contents Packages/com.securitylab.jailbreaklab_1.5.0_rootless.deb > rootless-contents.txt
+          dpkg-deb --contents Packages/com.securitylab.jailbreaklab_1.5.0_rootful.deb > rootful-contents.txt
+          grep -Fq './var/jb/Library/MobileSubstrate/DynamicLibraries/JailbreakLabShadow.dylib' rootless-contents.txt
+          grep -Fq './var/jb/Library/MobileSubstrate/DynamicLibraries/JailbreakLabShadow.plist' rootless-contents.txt
+          grep -Fq './Library/MobileSubstrate/DynamicLibraries/JailbreakLabShadow.dylib' rootful-contents.txt
+          grep -Fq './Library/MobileSubstrate/DynamicLibraries/JailbreakLabShadow.plist' rootful-contents.txt
           (cd Packages && shasum -a 256 *.deb > SHA256SUMS)
           cat Packages/SHA256SUMS
 
