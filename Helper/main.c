@@ -32,6 +32,8 @@ static const char *kDirectoryMarker = ".jailbreaklab-owned-v1";
 static const char *kRestrictedStateDirectory = "/private/var/db/jailbreaklab";
 static const char *kRestrictedStateFile = "restricted-write-state-v2";
 static const char *kSymlinkStateFile = "abnormal-symlink-state-v1";
+static const char *kShadowClassMarkerPath =
+    "/private/var/db/jailbreaklab/shadow-class-enabled-v1";
 
 #define RESTRICTED_TARGET_COUNT 3
 
@@ -1858,6 +1860,34 @@ static void cleanup_artifact(const artifact_t *artifact, const char *effective_p
     }
 }
 
+static void set_shadow_class_state(bool enabled, bool dry_run) {
+    char message[1024];
+    struct stat information;
+    bool existed = lstat(kShadowClassMarkerPath, &information) == 0;
+    int inspection_error = errno;
+    bool succeeded = enabled
+        ? create_marker_file(
+            kShadowClassMarkerPath, false, dry_run, message, sizeof(message)
+        )
+        : remove_marker_file(
+            kShadowClassMarkerPath, false, dry_run, message, sizeof(message)
+        );
+
+    if (succeeded) {
+        const char *status = dry_run
+            ? "planned"
+            : (enabled ? (existed ? "already_present" : "created") : "removed");
+        emit_result("ShadowRuleset", kShadowClassMarkerPath, status, message);
+        if (!enabled && !dry_run) prune_owned_ancestors(kShadowClassMarkerPath);
+    } else if (!enabled && !existed && inspection_error == ENOENT && errno == ENOENT) {
+        emit_result("ShadowRuleset", kShadowClassMarkerPath, "absent", "state marker is absent");
+    } else if (errno == EEXIST || errno == EPERM) {
+        emit_result("ShadowRuleset", kShadowClassMarkerPath, "protected", message);
+    } else {
+        emit_result("ShadowRuleset", kShadowClassMarkerPath, "failed", message);
+    }
+}
+
 static bool parse_options(int argument_count, char **arguments, options_t *options) {
     memset(options, 0, sizeof(*options));
     for (int index = 1; index < argument_count; index++) {
@@ -1884,7 +1914,9 @@ static bool parse_options(int argument_count, char **arguments, options_t *optio
          strcmp(options->operation, "disable-write") == 0 ||
          strcmp(options->operation, "disable-write-remove") == 0 ||
          strcmp(options->operation, "enable-symlinks") == 0 ||
-         strcmp(options->operation, "disable-symlinks") == 0);
+         strcmp(options->operation, "disable-symlinks") == 0 ||
+         strcmp(options->operation, "enable-objc-class") == 0 ||
+         strcmp(options->operation, "disable-objc-class") == 0);
     bool root_mode_valid = options->root_mode != NULL &&
         (strcmp(options->root_mode, "auto") == 0 ||
          strcmp(options->root_mode, "rootful") == 0 ||
@@ -1941,7 +1973,8 @@ int main(int argument_count, char **arguments) {
     }
     bool restore_operation = strcmp(options.operation, "disable-write") == 0 ||
         strcmp(options.operation, "disable-write-remove") == 0 ||
-        strcmp(options.operation, "disable-symlinks") == 0;
+        strcmp(options.operation, "disable-symlinks") == 0 ||
+        strcmp(options.operation, "disable-objc-class") == 0;
     bool root_restore = restore_operation && getuid() == 0 && geteuid() == 0;
     if (!options.dry_run && strcmp(options.operation, "probe") != 0 &&
         !root_restore && !caller_is_expected_app()) {
@@ -1960,6 +1993,15 @@ int main(int argument_count, char **arguments) {
         } else {
             disable_restricted_directories(options.dry_run);
         }
+        return 0;
+    }
+
+    if (strcmp(options.operation, "enable-objc-class") == 0 ||
+        strcmp(options.operation, "disable-objc-class") == 0) {
+        set_shadow_class_state(
+            strcmp(options.operation, "enable-objc-class") == 0,
+            options.dry_run
+        );
         return 0;
     }
 

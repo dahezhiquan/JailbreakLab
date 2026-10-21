@@ -1,13 +1,14 @@
 #!/bin/zsh
 set -euo pipefail
 
-if [[ $# -ne 2 ]]; then
-  print -u2 "usage: $0 <JailbreakLab.app> <jailbreaklab-helper>"
+if [[ $# -ne 3 ]]; then
+  print -u2 "usage: $0 <JailbreakLab.app> <jailbreaklab-helper> <JailbreakLabShadow.dylib>"
   exit 64
 fi
 
 app_path=$1
 helper_path=$2
+injection_path=$3
 project_root=${0:A:h:h}
 package_root="${project_root}/Packages"
 
@@ -20,6 +21,7 @@ done
 
 [[ -d "${app_path}" ]] || { print -u2 "app not found: ${app_path}"; exit 66; }
 [[ -f "${helper_path}" ]] || { print -u2 "helper not found: ${helper_path}"; exit 66; }
+[[ -f "${injection_path}" ]] || { print -u2 "injection dylib not found: ${injection_path}"; exit 66; }
 mkdir -p "${package_root}"
 
 build_package() {
@@ -35,22 +37,26 @@ build_package() {
 
   local application_directory="${stage}${prefix}/Applications"
   local helper_directory="${stage}${prefix}/usr/local/libexec"
+  local injection_directory="${stage}${prefix}/Library/MobileSubstrate/DynamicLibraries"
   local installed_app="${prefix}/Applications/JailbreakLab.app"
   local installed_helper="${prefix}/usr/local/libexec/jailbreaklab-helper"
 
   rm -rf "${stage}"
-  mkdir -p "${application_directory}" "${helper_directory}" "${stage}/DEBIAN"
+  mkdir -p "${application_directory}" "${helper_directory}" "${injection_directory}" "${stage}/DEBIAN"
   cp -R "${app_path}" "${application_directory}/JailbreakLab.app"
   cp "${helper_path}" "${helper_directory}/jailbreaklab-helper"
+  cp "${injection_path}" "${injection_directory}/JailbreakLabShadow.dylib"
+  cp "${project_root}/Injection/JailbreakLabShadow.plist" "${injection_directory}/JailbreakLabShadow.plist"
   chmod 0755 "${helper_directory}/jailbreaklab-helper"
 
   ldid -S"${project_root}/App/Resources/JailbreakLab.entitlements" "${application_directory}/JailbreakLab.app/JailbreakLab"
   ldid -S"${project_root}/Helper/entitlements.plist" "${helper_directory}/jailbreaklab-helper"
+  ldid -S "${injection_directory}/JailbreakLabShadow.dylib"
 
   cat > "${stage}/DEBIAN/control" <<CONTROL
 Package: com.securitylab.jailbreaklab.${scheme}
 Name: Jailbreak Lab (${scheme})
-Version: 1.4.1
+Version: 1.5.0
 Architecture: ${architecture}
 Description: Controlled jailbreak artifact simulator for owned security test devices.
 Maintainer: Security Lab
@@ -74,6 +80,7 @@ POSTINST
 #!/bin/sh
 case "\${1:-}" in
   remove|deconfigure)
+    '${installed_helper}' --operation disable-objc-class --root-mode auto --groups jailbreak-markers --live >/dev/null 2>&1 || true
     '${installed_helper}' --operation disable-symlinks --root-mode auto --groups jailbreak-markers --live >/dev/null 2>&1 || true
     '${installed_helper}' --operation disable-write-remove --root-mode auto --groups jailbreak-markers --live >/dev/null 2>&1 || true
     ;;
@@ -89,7 +96,7 @@ exit 0
 POSTRM
   chmod 0755 "${stage}/DEBIAN/postrm"
 
-  local output="${package_root}/com.securitylab.jailbreaklab_1.4.1_${scheme}.deb"
+  local output="${package_root}/com.securitylab.jailbreaklab_1.5.0_${scheme}.deb"
   dpkg-deb --root-owner-group --build "${stage}" "${output}"
   print "created ${output}"
 }

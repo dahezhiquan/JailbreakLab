@@ -52,10 +52,14 @@ jobs:
       - name: Verify packages
         run: |
           set -euo pipefail
-          test -f Packages/com.securitylab.jailbreaklab_1.4.1_rootless.deb
-          test -f Packages/com.securitylab.jailbreaklab_1.4.1_rootful.deb
-          dpkg-deb --info Packages/com.securitylab.jailbreaklab_1.4.1_rootless.deb
-          dpkg-deb --info Packages/com.securitylab.jailbreaklab_1.4.1_rootful.deb
+          test -f Packages/com.securitylab.jailbreaklab_1.5.0_rootless.deb
+          test -f Packages/com.securitylab.jailbreaklab_1.5.0_rootful.deb
+          dpkg-deb --info Packages/com.securitylab.jailbreaklab_1.5.0_rootless.deb
+          dpkg-deb --info Packages/com.securitylab.jailbreaklab_1.5.0_rootful.deb
+          dpkg-deb --contents Packages/com.securitylab.jailbreaklab_1.5.0_rootless.deb | grep -q './var/jb/Library/MobileSubstrate/DynamicLibraries/JailbreakLabShadow.dylib'
+          dpkg-deb --contents Packages/com.securitylab.jailbreaklab_1.5.0_rootless.deb | grep -q './var/jb/Library/MobileSubstrate/DynamicLibraries/JailbreakLabShadow.plist'
+          dpkg-deb --contents Packages/com.securitylab.jailbreaklab_1.5.0_rootful.deb | grep -q './Library/MobileSubstrate/DynamicLibraries/JailbreakLabShadow.dylib'
+          dpkg-deb --contents Packages/com.securitylab.jailbreaklab_1.5.0_rootful.deb | grep -q './Library/MobileSubstrate/DynamicLibraries/JailbreakLabShadow.plist'
           (cd Packages && shasum -a 256 *.deb > SHA256SUMS)
           cat Packages/SHA256SUMS
 

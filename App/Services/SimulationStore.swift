@@ -11,6 +11,8 @@ final class SimulationStore: ObservableObject {
     @Published private(set) var isAbnormalSymlinksEnabled: Bool
     @Published private(set) var abnormalSymlinksStatus: String
     @Published private(set) var abnormalSymlinksDetails: [String]
+    @Published private(set) var isSuspiciousObjCClassEnabled: Bool
+    @Published private(set) var suspiciousObjCClassStatus: String
     @Published private(set) var results: [ArtifactResult] = []
     @Published private(set) var isRunning = false
     @Published var alertMessage: String?
@@ -20,11 +22,15 @@ final class SimulationStore: ObservableObject {
     private static let suspiciousFilesKey = "SuspiciousFilesEnvironmentEnabled"
     private static let restrictedWriteKey = "RestrictedWriteEnvironmentEnabled"
     private static let abnormalSymlinksKey = "AbnormalSymlinksEnvironmentEnabled"
+    private static let suspiciousObjCClassKey = "SuspiciousObjCClassEnvironmentEnabled"
 
     init() {
         let suspiciousFilesEnabled = UserDefaults.standard.bool(forKey: Self.suspiciousFilesKey)
         let restrictedWriteEnabled = UserDefaults.standard.bool(forKey: Self.restrictedWriteKey)
         let abnormalSymlinksEnabled = UserDefaults.standard.bool(forKey: Self.abnormalSymlinksKey)
+        let suspiciousObjCClassEnabled = UserDefaults.standard.bool(
+            forKey: Self.suspiciousObjCClassKey
+        )
         isSuspiciousFilesEnabled = suspiciousFilesEnabled
         suspiciousFilesStatus = suspiciousFilesEnabled ? "已开启" : "已关闭"
         isRestrictedWriteEnabled = restrictedWriteEnabled
@@ -39,6 +45,10 @@ final class SimulationStore: ObservableObject {
         abnormalSymlinksDetails = abnormalSymlinksEnabled
             ? ["上次已开启；重新切换开关可刷新逐项结果"]
             : []
+        isSuspiciousObjCClassEnabled = suspiciousObjCClassEnabled
+        suspiciousObjCClassStatus = suspiciousObjCClassEnabled
+            ? "已开启：重启被测 App 后生效"
+            : "已关闭"
     }
 
     func setSuspiciousFilesEnabled(_ enabled: Bool) async {
@@ -230,6 +240,41 @@ final class SimulationStore: ObservableObject {
             if alertMessage == nil {
                 alertMessage = error.localizedDescription
             }
+        }
+    }
+
+    func setSuspiciousObjCClassEnabled(_ enabled: Bool) async {
+        guard enabled != isSuspiciousObjCClassEnabled, !isRunning else { return }
+        isRunning = true
+        defer { isRunning = false }
+        suspiciousObjCClassStatus = enabled ? "正在启用运行时类…" : "正在停用运行时类…"
+
+        do {
+            let operationResults = try await helperClient.run(
+                operation: enabled ? "enable-objc-class" : "disable-objc-class",
+                rootLayout: .automatic,
+                strategies: Set(EnvironmentStrategy.allCases),
+                dryRun: false
+            )
+            results = operationResults
+            guard let result = operationResults.first else {
+                throw HelperClientError.invalidOutput
+            }
+
+            if isOperationFailure(result) {
+                throw HelperClientError.operationRejected(result.message)
+            }
+
+            isSuspiciousObjCClassEnabled = enabled
+            defaults.set(enabled, forKey: Self.suspiciousObjCClassKey)
+            suspiciousObjCClassStatus = enabled
+                ? "已开启：重启被测 App 后生效"
+                : "已关闭：重启被测 App 后生效"
+        } catch {
+            suspiciousObjCClassStatus = isSuspiciousObjCClassEnabled
+                ? "已开启：状态未改变"
+                : "已关闭"
+            alertMessage = error.localizedDescription
         }
     }
 

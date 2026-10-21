@@ -4,8 +4,9 @@ TARGET := JailbreakLab
 BUILD_DIR := $(CURDIR)/build
 APP := $(BUILD_DIR)/Release-iphoneos/JailbreakLab.app
 HELPER := $(BUILD_DIR)/jailbreaklab-helper
+INJECTION := $(BUILD_DIR)/JailbreakLabShadow.dylib
 
-.PHONY: project app helper package clean test-helper
+.PHONY: project app helper injection package clean test-helper
 
 project:
 	@test -f $(PROJECT)/project.pbxproj || { echo "missing $(PROJECT)"; exit 1; }
@@ -19,11 +20,17 @@ helper:
 	@xcrun --sdk iphoneos --find clang >/dev/null || { echo "Full Xcode with iPhoneOS SDK is required"; exit 1; }
 	$$(xcrun --sdk iphoneos --find clang) -arch arm64 -isysroot $$(xcrun --sdk iphoneos --show-sdk-path) -miphoneos-version-min=16.0 -Os -Wall -Wextra -Werror Helper/main.c -o $(HELPER)
 
-package: app helper
-	./Packaging/package.sh $(APP) $(HELPER)
+injection:
+	@xcrun --sdk iphoneos --find clang >/dev/null || { echo "Full Xcode with iPhoneOS SDK is required"; exit 1; }
+	mkdir -p $(BUILD_DIR)
+	$$(xcrun --sdk iphoneos --find clang) -arch arm64 -isysroot $$(xcrun --sdk iphoneos --show-sdk-path) -miphoneos-version-min=16.0 -Os -Wall -Wextra -Werror -dynamiclib -fvisibility=hidden -Wl,-install_name,@rpath/JailbreakLabShadow.dylib -lobjc Injection/ShadowRuntime.m -o $(INJECTION)
+
+package: app helper injection
+	./Packaging/package.sh $(APP) $(HELPER) $(INJECTION)
 
 test-helper:
 	./Tests/run_helper_tests.sh
+	clang -fsyntax-only -Wall -Wextra -Werror Injection/ShadowRuntime.m
 
 clean:
 	rm -rf $(BUILD_DIR) $(PROJECT) Packages

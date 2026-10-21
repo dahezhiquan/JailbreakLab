@@ -43,6 +43,18 @@ struct DashboardView: View {
                         await store.setAbnormalSymlinksEnabled(enabled)
                     }
                 }
+
+                Section {
+                    strategyRows(
+                        title: "可疑 Objective-C 类是否存在",
+                        detail: "注册 ShadowRuleset 与 internalDictionary",
+                        isOn: store.isSuspiciousObjCClassEnabled,
+                        status: store.suspiciousObjCClassStatus,
+                        symbol: "curlybraces.square"
+                    ) { enabled in
+                        await store.setSuspiciousObjCClassEnabled(enabled)
+                    }
+                }
             }
             .navigationTitle("Jailbreak Lab")
             .alert(
