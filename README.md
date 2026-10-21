@@ -29,8 +29,8 @@ Jailbreak Lab 是一个用于自有越狱测试设备的 iOS 环境模拟工具�
 4. 构建成功后，在该次运行页面底部下载 `JailbreakLab-debs-*`。
 5. 解压后根据越狱类型只安装一个包：
 
-   - `com.securitylab.jailbreaklab_1.4.0_rootless.deb`
-   - `com.securitylab.jailbreaklab_1.4.0_rootful.deb`
+   - `com.securitylab.jailbreaklab_1.4.1_rootless.deb`
+   - `com.securitylab.jailbreaklab_1.4.1_rootful.deb`
 
 ## 使用
 

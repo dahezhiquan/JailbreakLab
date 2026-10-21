@@ -16,15 +16,15 @@ int main(void) {
     snprintf(marker_path, sizeof(marker_path), "%s/missing/parent/test.dylib", root);
 
     char message[1024];
-    assert(create_marker_file(marker_path, false, message, sizeof(message)));
-    assert(create_marker_file(marker_path, false, message, sizeof(message)));
+    assert(create_marker_file(marker_path, false, false, message, sizeof(message)));
+    assert(create_marker_file(marker_path, false, false, message, sizeof(message)));
 
     struct stat information;
     assert(lstat(marker_path, &information) == 0);
     assert(S_ISREG(information.st_mode));
     assert((information.st_mode & 0111) == 0);
 
-    assert(remove_marker_file(marker_path, false, message, sizeof(message)));
+    assert(remove_marker_file(marker_path, false, false, message, sizeof(message)));
     prune_owned_ancestors(marker_path);
 
     char missing_path[MAX_PATH_LENGTH];
@@ -37,9 +37,9 @@ int main(void) {
     assert(existing >= 0);
     assert(write_all(existing, "external", 8));
     close(existing);
-    assert(!create_marker_file(existing_path, false, message, sizeof(message)));
+    assert(!create_marker_file(existing_path, false, false, message, sizeof(message)));
     assert(errno == EEXIST);
-    assert(!remove_marker_file(existing_path, false, message, sizeof(message)));
+    assert(!remove_marker_file(existing_path, false, false, message, sizeof(message)));
     assert(errno == EPERM);
 
     char real_directory[MAX_PATH_LENGTH];
@@ -50,7 +50,52 @@ int main(void) {
     snprintf(linked_target, sizeof(linked_target), "%s/link/marker", root);
     assert(mkdir(real_directory, 0700) == 0);
     assert(symlink(real_directory, linked_directory) == 0);
-    assert(!create_marker_file(linked_target, false, message, sizeof(message)));
+    assert(!create_marker_file(linked_target, false, false, message, sizeof(message)));
+
+    char apt_contents[MAX_PATH_LENGTH + 64];
+    assert(is_apt_source_path("/etc/apt/sources.list.d/electra.list"));
+    assert(marker_file_contents(
+        "/tmp/electra.list", true, apt_contents, sizeof(apt_contents)
+    ));
+    assert(strcmp(
+        apt_contents,
+        "# JAILBREAKLAB_ARTIFACT_V1\n# /tmp/electra.list\n"
+    ) == 0);
+
+    char apt_marker_path[MAX_PATH_LENGTH];
+    snprintf(apt_marker_path, sizeof(apt_marker_path), "%s/electra.list", root);
+    assert(create_marker_file(
+        apt_marker_path, true, false, message, sizeof(message)
+    ));
+    int apt_marker = open(apt_marker_path, O_RDONLY | O_NOFOLLOW | O_CLOEXEC);
+    assert(apt_marker >= 0);
+    assert(fd_has_exact_signature(apt_marker, apt_contents) == false);
+    close(apt_marker);
+    char expected_apt_contents[MAX_PATH_LENGTH + 64];
+    assert(marker_file_contents(
+        apt_marker_path, true, expected_apt_contents, sizeof(expected_apt_contents)
+    ));
+    apt_marker = open(apt_marker_path, O_RDONLY | O_NOFOLLOW | O_CLOEXEC);
+    assert(apt_marker >= 0);
+    assert(fd_has_exact_signature(apt_marker, expected_apt_contents));
+    close(apt_marker);
+    assert(remove_marker_file(
+        apt_marker_path, true, false, message, sizeof(message)
+    ));
+
+    assert(create_marker_file(
+        apt_marker_path, false, false, message, sizeof(message)
+    ));
+    assert(create_marker_file(
+        apt_marker_path, true, false, message, sizeof(message)
+    ));
+    apt_marker = open(apt_marker_path, O_RDONLY | O_NOFOLLOW | O_CLOEXEC);
+    assert(apt_marker >= 0);
+    assert(fd_has_exact_signature(apt_marker, expected_apt_contents));
+    close(apt_marker);
+    assert(remove_marker_file(
+        apt_marker_path, true, false, message, sizeof(message)
+    ));
 
     assert(unlink(linked_directory) == 0);
     assert(rmdir(real_directory) == 0);

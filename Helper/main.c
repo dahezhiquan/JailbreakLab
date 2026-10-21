@@ -27,6 +27,7 @@
 #define PROCESS_PATH_BUFFER_SIZE 4096
 
 static const char *kFileSignature = "JAILBREAKLAB_ARTIFACT_V1\n";
+static const char *kAptSafeFileSignature = "# JAILBREAKLAB_ARTIFACT_V1\n# ";
 static const char *kDirectoryMarker = ".jailbreaklab-owned-v1";
 static const char *kRestrictedStateDirectory = "/private/var/db/jailbreaklab";
 static const char *kRestrictedStateFile = "restricted-write-state-v2";
@@ -496,7 +497,33 @@ static bool dry_run_can_create(const char *path, char *message, size_t capacity)
     return true;
 }
 
-static bool create_marker_file(const char *path, bool dry_run, char *message, size_t capacity) {
+static bool is_apt_source_path(const char *logical_path) {
+    return strcmp(logical_path, "/etc/apt/sources.list.d/electra.list") == 0 ||
+        strcmp(logical_path, "/etc/apt/sources.list.d/sileo.sources") == 0 ||
+        strcmp(logical_path, "/etc/apt/undecimus/undecimus.list") == 0;
+}
+
+static bool marker_file_contents(
+    const char *path,
+    bool apt_safe,
+    char *contents,
+    size_t capacity
+) {
+    int length = snprintf(
+        contents, capacity, "%s%s\n",
+        apt_safe ? kAptSafeFileSignature : kFileSignature,
+        path
+    );
+    return length > 0 && (size_t)length < capacity;
+}
+
+static bool create_marker_file(
+    const char *path,
+    bool apt_safe,
+    bool dry_run,
+    char *message,
+    size_t capacity
+) {
     if (dry_run) return dry_run_can_create(path, message, capacity);
 
     char leaf[NAME_MAX + 1];
@@ -509,14 +536,39 @@ static bool create_marker_file(const char *path, bool dry_run, char *message, si
     struct stat information;
     if (fstatat(parent, leaf, &information, AT_SYMLINK_NOFOLLOW) == 0) {
         char signature[MAX_PATH_LENGTH + 64];
-        snprintf(signature, sizeof(signature), "%s%s\n", kFileSignature, path);
-        int existing = openat(parent, leaf, O_RDONLY | O_NOFOLLOW | O_CLOEXEC);
-        bool owned = existing >= 0 && fd_has_exact_signature(existing, signature);
+        char legacy_signature[MAX_PATH_LENGTH + 64];
+        bool signature_valid = marker_file_contents(
+            path, apt_safe, signature, sizeof(signature)
+        );
+        bool legacy_valid = marker_file_contents(
+            path, false, legacy_signature, sizeof(legacy_signature)
+        );
+        int existing = openat(parent, leaf, O_RDWR | O_NOFOLLOW | O_CLOEXEC);
+        bool current = signature_valid && existing >= 0 &&
+            fd_has_exact_signature(existing, signature);
+        bool legacy = !current && legacy_valid && existing >= 0 &&
+            fd_has_exact_signature(existing, legacy_signature);
+        bool upgraded = false;
+        if (legacy && apt_safe && ftruncate(existing, 0) == 0 &&
+            lseek(existing, 0, SEEK_SET) == 0) {
+            upgraded = write_all(existing, signature, strlen(signature)) &&
+                fsync(existing) == 0;
+        }
         if (existing >= 0) close(existing);
         close(parent);
-        if (owned) {
-            snprintf(message, capacity, "signed marker file already exists");
+        if (current || (legacy && (!apt_safe || upgraded))) {
+            snprintf(
+                message, capacity,
+                upgraded
+                    ? "legacy APT marker upgraded to comment-only content"
+                    : "signed marker file already exists"
+            );
             return true;
+        }
+        if (legacy && apt_safe) {
+            snprintf(message, capacity, "legacy APT marker could not be made parser-safe");
+            errno = EIO;
+            return false;
         }
         snprintf(message, capacity, "existing object was not modified");
         errno = EEXIST;
@@ -541,10 +593,9 @@ static bool create_marker_file(const char *path, bool dry_run, char *message, si
     }
 
     char contents[MAX_PATH_LENGTH + 64];
-    int content_length = snprintf(contents, sizeof(contents), "%s%s\n", kFileSignature, path);
-    bool succeeded = content_length > 0 &&
-        (size_t)content_length < sizeof(contents) &&
-        write_all(descriptor, contents, (size_t)content_length) &&
+    bool content_valid = marker_file_contents(path, apt_safe, contents, sizeof(contents));
+    bool succeeded = content_valid &&
+        write_all(descriptor, contents, strlen(contents)) &&
         fsync(descriptor) == 0;
     int saved = errno;
     close(descriptor);
@@ -629,7 +680,13 @@ static bool create_marker_directory(const char *path, bool dry_run, char *messag
     return true;
 }
 
-static bool remove_marker_file(const char *path, bool dry_run, char *message, size_t capacity) {
+static bool remove_marker_file(
+    const char *path,
+    bool apt_safe,
+    bool dry_run,
+    char *message,
+    size_t capacity
+) {
     char leaf[NAME_MAX + 1];
     int parent = open_parent_directory(path, leaf, sizeof(leaf), false);
     if (parent < 0) {
@@ -654,8 +711,17 @@ static bool remove_marker_file(const char *path, bool dry_run, char *message, si
     }
 
     char signature[MAX_PATH_LENGTH + 64];
-    snprintf(signature, sizeof(signature), "%s%s\n", kFileSignature, path);
-    bool owned = fd_has_exact_signature(descriptor, signature);
+    char legacy_signature[MAX_PATH_LENGTH + 64];
+    bool signature_valid = marker_file_contents(
+        path, apt_safe, signature, sizeof(signature)
+    );
+    bool legacy_valid = marker_file_contents(
+        path, false, legacy_signature, sizeof(legacy_signature)
+    );
+    bool owned = signature_valid && fd_has_exact_signature(descriptor, signature);
+    if (!owned && apt_safe && legacy_valid) {
+        owned = fd_has_exact_signature(descriptor, legacy_signature);
+    }
     close(descriptor);
     if (!owned) {
         close(parent);
@@ -1109,7 +1175,9 @@ static void disable_restricted_directories(bool dry_run) {
             emit_result(kRestrictedTargets[index], path, "protected", "directory identity changed; original mode not applied");
             continue;
         }
-        if (fchmod(directory, (mode_t)state.original_modes[index]) != 0) {
+        mode_t current_mode = information.st_mode & 07777;
+        if (current_mode != (mode_t)state.original_modes[index] &&
+            fchmod(directory, (mode_t)state.original_modes[index]) != 0) {
             char message[1024];
             snprintf(message, sizeof(message), "permission restore failed: %s", strerror(errno));
             close(directory);
@@ -1756,7 +1824,10 @@ static void probe_artifact(const artifact_t *artifact, const char *effective_pat
 static void apply_artifact(const artifact_t *artifact, const char *effective_path, bool dry_run) {
     char message[1024];
     bool succeeded = artifact->kind == KIND_FILE
-        ? create_marker_file(effective_path, dry_run, message, sizeof(message))
+        ? create_marker_file(
+            effective_path, is_apt_source_path(artifact->path),
+            dry_run, message, sizeof(message)
+        )
         : create_marker_directory(effective_path, dry_run, message, sizeof(message));
     if (succeeded) {
         emit_result(artifact->path, effective_path, dry_run ? "planned" : "created", message);
@@ -1770,7 +1841,10 @@ static void apply_artifact(const artifact_t *artifact, const char *effective_pat
 static void cleanup_artifact(const artifact_t *artifact, const char *effective_path, bool dry_run) {
     char message[1024];
     bool succeeded = artifact->kind == KIND_FILE
-        ? remove_marker_file(effective_path, dry_run, message, sizeof(message))
+        ? remove_marker_file(
+            effective_path, is_apt_source_path(artifact->path),
+            dry_run, message, sizeof(message)
+        )
         : remove_marker_directory(effective_path, dry_run, message, sizeof(message));
     if (succeeded) {
         emit_result(artifact->path, effective_path, dry_run ? "planned" : "removed", message);
