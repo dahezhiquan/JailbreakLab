@@ -247,6 +247,18 @@ int main(void) {
     char private_path[MAX_PATH_LENGTH];
     assert(restricted_effective_path("/private", true, private_path, sizeof(private_path)));
     assert(strcmp(private_path, "/private") == 0);
+    assert(path_is_within_directory(
+        "/private/preboot/hash/procursus/usr/lib/TweakInject",
+        "/private/preboot/hash/procursus"
+    ));
+    assert(!path_is_within_directory(
+        "/private/preboot/hash/procursus-malicious/usr/lib/TweakInject",
+        "/private/preboot/hash/procursus"
+    ));
+    assert(!path_is_within_directory(
+        "/private/var/mobile/usr/lib/TweakInject",
+        "/private/preboot/hash/procursus"
+    ));
     assert(rmdir(restricted_path) == 0);
 
     int test_root = open(root, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);

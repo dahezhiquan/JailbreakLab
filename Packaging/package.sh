@@ -55,7 +55,7 @@ build_package() {
   cat > "${stage}/DEBIAN/control" <<CONTROL
 Package: com.securitylab.jailbreaklab.${scheme}
 Name: Jailbreak Lab (${scheme})
-Version: 1.7.0
+Version: 1.7.1
 Architecture: ${architecture}
 Depends: mobilesubstrate
 Description: Controlled jailbreak artifact simulator for owned security test devices.
@@ -101,7 +101,7 @@ exit 0
 POSTRM
   chmod 0755 "${stage}/DEBIAN/postrm"
 
-  local output="${package_root}/com.securitylab.jailbreaklab_1.7.0_${scheme}.deb"
+  local output="${package_root}/com.securitylab.jailbreaklab_1.7.1_${scheme}.deb"
   dpkg-deb --root-owner-group --build "${stage}" "${output}"
   print "created ${output}"
 }

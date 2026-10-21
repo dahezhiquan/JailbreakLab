@@ -346,6 +346,63 @@ static bool effective_path_for(
     return effective_path_for_layout(original, use_rootless, output, capacity);
 }
 
+static bool path_is_within_directory(const char *path, const char *directory) {
+    if (path == NULL || directory == NULL) return false;
+    size_t directory_length = strlen(directory);
+    if (directory_length == 0 || strncmp(path, directory, directory_length) != 0) {
+        return false;
+    }
+    return path[directory_length] == '\0' || path[directory_length] == '/';
+}
+
+static bool shadow_filter_path(
+    bool use_rootless,
+    char *output,
+    size_t capacity
+) {
+    if (!use_rootless) {
+        return effective_path_for_layout(
+            kShadowFilterPath, false, output, capacity
+        );
+    }
+
+    static const char *filter_directory =
+        "/Library/MobileSubstrate/DynamicLibraries";
+    char mapped_directory[MAX_PATH_LENGTH];
+    if (!effective_path_for_layout(
+        filter_directory, true, mapped_directory, sizeof(mapped_directory)
+    )) {
+        errno = ENAMETOOLONG;
+        return false;
+    }
+
+    char bootstrap_root[PATH_MAX];
+    char resolved_directory[PATH_MAX];
+    if (realpath("/var/jb", bootstrap_root) == NULL ||
+        realpath(mapped_directory, resolved_directory) == NULL) {
+        return false;
+    }
+    if (!path_is_within_directory(resolved_directory, bootstrap_root)) {
+        errno = EPERM;
+        return false;
+    }
+
+    struct stat information;
+    if (stat(resolved_directory, &information) != 0) return false;
+    if (!S_ISDIR(information.st_mode)) {
+        errno = ENOTDIR;
+        return false;
+    }
+    int result = snprintf(
+        output, capacity, "%s/JailbreakLabShadow.plist", resolved_directory
+    );
+    if (result <= 0 || (size_t)result >= capacity) {
+        errno = ENAMETOOLONG;
+        return false;
+    }
+    return true;
+}
+
 static bool restricted_effective_path(
     const char *original,
     bool use_rootless,
@@ -2331,10 +2388,13 @@ static void set_shadow_class_state(
     bool dry_run
 ) {
     char filter_path[MAX_PATH_LENGTH];
-    if (!effective_path_for_layout(
-        kShadowFilterPath, use_rootless, filter_path, sizeof(filter_path)
-    )) {
-        emit_result("ShadowRuleset", kShadowFilterPath, "failed", "filter path mapping failed");
+    if (!shadow_filter_path(use_rootless, filter_path, sizeof(filter_path))) {
+        char path_message[256];
+        snprintf(
+            path_message, sizeof(path_message),
+            "cannot resolve injection directory: %s", strerror(errno)
+        );
+        emit_result("ShadowRuleset", kShadowFilterPath, "failed", path_message);
         return;
     }
     shadow_target_state_t desired_target;
