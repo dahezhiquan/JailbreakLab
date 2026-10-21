@@ -6,25 +6,29 @@ struct DashboardView: View {
     var body: some View {
         NavigationStack {
             Form {
-                strategyRow(
-                    title: "可疑文件是否存在",
-                    detail: "写入越狱特征路径",
-                    isOn: store.isSuspiciousFilesEnabled,
-                    status: store.suspiciousFilesStatus,
-                    symbol: "doc.badge.plus"
-                ) { enabled in
-                    await store.setSuspiciousFilesEnabled(enabled)
+                Section {
+                    strategyRows(
+                        title: "可疑文件是否存在",
+                        detail: "写入越狱特征路径",
+                        isOn: store.isSuspiciousFilesEnabled,
+                        status: store.suspiciousFilesStatus,
+                        symbol: "doc.badge.plus"
+                    ) { enabled in
+                        await store.setSuspiciousFilesEnabled(enabled)
+                    }
                 }
 
-                strategyRow(
-                    title: "受限目录是否可写",
-                    detail: "尝试使 /root/、/private/、/jb/ 可写",
-                    isOn: store.isRestrictedWriteEnabled,
-                    status: store.restrictedWriteStatus,
-                    details: store.restrictedWriteDetails,
-                    symbol: "folder.badge.gearshape"
-                ) { enabled in
-                    await store.setRestrictedWriteEnabled(enabled)
+                Section {
+                    strategyRows(
+                        title: "受限目录是否可写",
+                        detail: "尝试使 /root/、/private/、/jb/ 可写",
+                        isOn: store.isRestrictedWriteEnabled,
+                        status: store.restrictedWriteStatus,
+                        details: store.restrictedWriteDetails,
+                        symbol: "folder.badge.gearshape"
+                    ) { enabled in
+                        await store.setRestrictedWriteEnabled(enabled)
+                    }
                 }
             }
             .navigationTitle("Jailbreak Lab")
@@ -43,7 +47,8 @@ struct DashboardView: View {
         .tint(.green)
     }
 
-    private func strategyRow(
+    @ViewBuilder
+    private func strategyRows(
         title: String,
         detail: String,
         isOn: Bool,
@@ -52,47 +57,45 @@ struct DashboardView: View {
         symbol: String,
         action: @escaping @MainActor (Bool) async -> Void
     ) -> some View {
-        Section {
-            Toggle(
-                isOn: Binding(
-                    get: { isOn },
-                    set: { enabled in Task { @MainActor in await action(enabled) } }
-                )
-            ) {
-                Label {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(title)
-                            .font(.headline)
-                        Text(detail)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                } icon: {
-                    Image(systemName: symbol)
-                        .foregroundStyle(.green)
+        Toggle(
+            isOn: Binding(
+                get: { isOn },
+                set: { enabled in Task { @MainActor in await action(enabled) } }
+            )
+        ) {
+            Label {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(title)
+                        .font(.headline)
+                    Text(detail)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
+            } icon: {
+                Image(systemName: symbol)
+                    .foregroundStyle(.green)
             }
-            .disabled(store.isRunning)
-            .accessibilityLabel(title)
+        }
+        .disabled(store.isRunning)
+        .accessibilityLabel(title)
 
-            HStack(spacing: 10) {
-                if store.isRunning {
-                    ProgressView()
-                } else {
-                    Image(systemName: isOn ? "checkmark.circle.fill" : "circle")
-                        .foregroundStyle(isOn ? .green : .secondary)
-                }
-                Text(status)
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
+        HStack(spacing: 10) {
+            if store.isRunning {
+                ProgressView()
+            } else {
+                Image(systemName: isOn ? "checkmark.circle.fill" : "circle")
+                    .foregroundStyle(isOn ? .green : .secondary)
             }
+            Text(status)
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+        }
 
-            ForEach(details, id: \.self) { detail in
-                Text(detail)
-                    .font(.caption.monospaced())
-                    .foregroundStyle(detail.hasPrefix("✓") ? .secondary : .red)
-                    .textSelection(.enabled)
-            }
+        ForEach(details, id: \.self) { detail in
+            Text(detail)
+                .font(.caption.monospaced())
+                .foregroundStyle(detail.hasPrefix("✓") ? Color.secondary : Color.red)
+                .textSelection(.enabled)
         }
     }
 }
