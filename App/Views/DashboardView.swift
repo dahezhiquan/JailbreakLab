@@ -47,7 +47,7 @@ struct DashboardView: View {
                 Section {
                     strategyRows(
                         title: "可疑 Objective-C 类是否存在",
-                        detail: "注册 ShadowRuleset 与 internalDictionary",
+                        detail: "为度小满活体注册 ShadowRuleset",
                         isOn: store.isSuspiciousObjCClassEnabled,
                         status: store.suspiciousObjCClassStatus,
                         symbol: "curlybraces.square"

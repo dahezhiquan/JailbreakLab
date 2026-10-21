@@ -6,7 +6,7 @@
     <dict>
         <key>Bundles</key>
         <array>
-            <string>com.apple.UIKit</string>
+            <string>com.dxmpay.payDemo</string>
         </array>
     </dict>
 </dict>

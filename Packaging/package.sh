@@ -46,7 +46,6 @@ build_package() {
   cp -R "${app_path}" "${application_directory}/JailbreakLab.app"
   cp "${helper_path}" "${helper_directory}/jailbreaklab-helper"
   cp "${injection_path}" "${injection_directory}/JailbreakLabShadow.dylib"
-  cp "${project_root}/Injection/JailbreakLabShadow.plist" "${injection_directory}/JailbreakLabShadow.plist"
   chmod 0755 "${helper_directory}/jailbreaklab-helper"
 
   ldid -S"${project_root}/App/Resources/JailbreakLab.entitlements" "${application_directory}/JailbreakLab.app/JailbreakLab"
@@ -56,8 +55,9 @@ build_package() {
   cat > "${stage}/DEBIAN/control" <<CONTROL
 Package: com.securitylab.jailbreaklab.${scheme}
 Name: Jailbreak Lab (${scheme})
-Version: 1.5.0
+Version: 1.6.0
 Architecture: ${architecture}
+Depends: mobilesubstrate
 Description: Controlled jailbreak artifact simulator for owned security test devices.
 Maintainer: Security Lab
 Author: Security Lab
@@ -71,6 +71,11 @@ CONTROL
 set -e
 chown root:wheel '${installed_helper}'
 chmod 4755 '${installed_helper}'
+if [ -f /private/var/db/jailbreaklab/shadow-class-enabled-v1 ]; then
+  '${installed_helper}' --operation enable-objc-class --root-mode auto --groups jailbreak-markers --live >/dev/null 2>&1 || true
+else
+  '${installed_helper}' --operation disable-objc-class --root-mode auto --groups jailbreak-markers --live >/dev/null 2>&1 || true
+fi
 uicache -p '${installed_app}' >/dev/null 2>&1 || true
 exit 0
 POSTINST
@@ -96,7 +101,7 @@ exit 0
 POSTRM
   chmod 0755 "${stage}/DEBIAN/postrm"
 
-  local output="${package_root}/com.securitylab.jailbreaklab_1.5.0_${scheme}.deb"
+  local output="${package_root}/com.securitylab.jailbreaklab_1.6.0_${scheme}.deb"
   dpkg-deb --root-owner-group --build "${stage}" "${output}"
   print "created ${output}"
 }

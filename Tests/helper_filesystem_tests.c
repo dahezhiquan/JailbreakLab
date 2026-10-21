@@ -97,6 +97,69 @@ int main(void) {
         apt_marker_path, true, false, message, sizeof(message)
     ));
 
+    char shadow_filter_path[MAX_PATH_LENGTH];
+    snprintf(shadow_filter_path, sizeof(shadow_filter_path), "%s/shadow-filter.plist", root);
+    bool filter_changed = false;
+    assert(update_shadow_filter(
+        shadow_filter_path, true, &filter_changed, message, sizeof(message)
+    ));
+    assert(filter_changed);
+    assert(update_shadow_filter(
+        shadow_filter_path, true, &filter_changed, message, sizeof(message)
+    ));
+    assert(!filter_changed);
+    int shadow_filter = open(
+        shadow_filter_path, O_RDONLY | O_NOFOLLOW | O_CLOEXEC
+    );
+    assert(shadow_filter >= 0);
+    assert(fd_has_exact_signature(shadow_filter, kShadowFilterContents));
+    close(shadow_filter);
+    assert(update_shadow_filter(
+        shadow_filter_path, false, &filter_changed, message, sizeof(message)
+    ));
+    assert(filter_changed);
+    assert(update_shadow_filter(
+        shadow_filter_path, false, &filter_changed, message, sizeof(message)
+    ));
+    assert(!filter_changed);
+
+    shadow_filter = open(
+        shadow_filter_path, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, 0600
+    );
+    assert(shadow_filter >= 0);
+    assert(write_all(
+        shadow_filter,
+        kLegacyShadowFilterContents,
+        strlen(kLegacyShadowFilterContents)
+    ));
+    close(shadow_filter);
+    assert(update_shadow_filter(
+        shadow_filter_path, true, &filter_changed, message, sizeof(message)
+    ));
+    assert(filter_changed);
+    shadow_filter = open(
+        shadow_filter_path, O_RDONLY | O_NOFOLLOW | O_CLOEXEC
+    );
+    assert(shadow_filter >= 0);
+    assert(fd_has_exact_signature(shadow_filter, kShadowFilterContents));
+    close(shadow_filter);
+    assert(update_shadow_filter(
+        shadow_filter_path, false, &filter_changed, message, sizeof(message)
+    ));
+    assert(filter_changed);
+
+    shadow_filter = open(
+        shadow_filter_path, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, 0600
+    );
+    assert(shadow_filter >= 0);
+    assert(write_all(shadow_filter, "external", 8));
+    close(shadow_filter);
+    assert(!update_shadow_filter(
+        shadow_filter_path, true, &filter_changed, message, sizeof(message)
+    ));
+    assert(errno == EPERM);
+    assert(unlink(shadow_filter_path) == 0);
+
     assert(unlink(linked_directory) == 0);
     assert(rmdir(real_directory) == 0);
     assert(unlink(existing_path) == 0);

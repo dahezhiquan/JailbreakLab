@@ -3,6 +3,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <limits.h>
+#include <signal.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -34,6 +35,29 @@ static const char *kRestrictedStateFile = "restricted-write-state-v2";
 static const char *kSymlinkStateFile = "abnormal-symlink-state-v1";
 static const char *kShadowClassMarkerPath =
     "/private/var/db/jailbreaklab/shadow-class-enabled-v1";
+static const char *kShadowFilterPath =
+    "/Library/MobileSubstrate/DynamicLibraries/JailbreakLabShadow.plist";
+static const char *kShadowFilterContents =
+    "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+    "<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" "
+    "\"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n"
+    "<plist version=\"1.0\"><dict><key>Filter</key><dict><key>Bundles</key>"
+    "<array><string>com.dxmpay.payDemo</string></array></dict></dict></plist>\n";
+static const char *kLegacyShadowFilterContents =
+    "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+    "<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" "
+    "\"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n"
+    "<plist version=\"1.0\">\n"
+    "<dict>\n"
+    "    <key>Filter</key>\n"
+    "    <dict>\n"
+    "        <key>Bundles</key>\n"
+    "        <array>\n"
+    "            <string>com.apple.UIKit</string>\n"
+    "        </array>\n"
+    "    </dict>\n"
+    "</dict>\n"
+    "</plist>\n";
 
 #define RESTRICTED_TARGET_COUNT 3
 
@@ -1860,32 +1884,247 @@ static void cleanup_artifact(const artifact_t *artifact, const char *effective_p
     }
 }
 
-static void set_shadow_class_state(bool enabled, bool dry_run) {
-    char message[1024];
-    struct stat information;
-    bool existed = lstat(kShadowClassMarkerPath, &information) == 0;
+static int terminate_target_app(void) {
+    typedef int (*process_list_function_t)(void *, int);
+    typedef int (*process_path_function_t)(int, void *, uint32_t);
+    process_list_function_t process_list =
+        (process_list_function_t)dlsym(RTLD_DEFAULT, "proc_listallpids");
+    process_path_function_t process_path =
+        (process_path_function_t)dlsym(RTLD_DEFAULT, "proc_pidpath");
+    if (process_list == NULL || process_path == NULL) return -1;
+
+    int process_capacity = process_list(NULL, 0);
+    if (process_capacity <= 0) return -1;
+    if (process_capacity > INT_MAX - 32) return -1;
+    process_capacity += 32;
+    size_t buffer_size = (size_t)process_capacity * sizeof(pid_t);
+    if (buffer_size > INT_MAX) return -1;
+    pid_t *process_ids = calloc((size_t)process_capacity, sizeof(pid_t));
+    if (process_ids == NULL) return -1;
+
+    int process_count = process_list(process_ids, (int)buffer_size);
+    if (process_count < 0) process_count = 0;
+    if (process_count > process_capacity) process_count = process_capacity;
+    static const char target_suffix[] =
+        "/BaiduWalletDemo.app/BaiduWalletDemo";
+    int terminated = 0;
+    for (int index = 0; index < process_count; index++) {
+        pid_t process_id = process_ids[index];
+        if (process_id <= 1 || process_id == getpid() || process_id == getppid()) continue;
+
+        char executable_path[PROCESS_PATH_BUFFER_SIZE] = {0};
+        if (process_path(
+            process_id, executable_path, (uint32_t)sizeof(executable_path)
+        ) <= 0) continue;
+        size_t path_length = strlen(executable_path);
+        size_t suffix_length = strlen(target_suffix);
+        bool is_container_app =
+            strncmp(
+                executable_path,
+                "/private/var/containers/Bundle/Application/",
+                strlen("/private/var/containers/Bundle/Application/")
+            ) == 0 ||
+            strncmp(
+                executable_path,
+                "/var/containers/Bundle/Application/",
+                strlen("/var/containers/Bundle/Application/")
+            ) == 0;
+        if (is_container_app && path_length >= suffix_length &&
+            strcmp(executable_path + path_length - suffix_length, target_suffix) == 0 &&
+            kill(process_id, SIGTERM) == 0) {
+            terminated++;
+        }
+    }
+    free(process_ids);
+    return terminated;
+}
+
+static bool update_shadow_filter(
+    const char *path,
+    bool enabled,
+    bool *changed,
+    char *message,
+    size_t capacity
+) {
+    *changed = false;
+    char leaf[NAME_MAX + 1];
+    int parent = open_parent_directory(path, leaf, sizeof(leaf), false);
+    if (parent < 0) {
+        snprintf(message, capacity, "cannot open injection directory: %s", strerror(errno));
+        return false;
+    }
+
+    int descriptor = openat(parent, leaf, O_RDWR | O_NOFOLLOW | O_CLOEXEC);
+    if (descriptor >= 0) {
+        bool current = fd_has_exact_signature(descriptor, kShadowFilterContents);
+        bool legacy = !current &&
+            fd_has_exact_signature(descriptor, kLegacyShadowFilterContents);
+        if (!current && !legacy) {
+            close(descriptor);
+            close(parent);
+            errno = EPERM;
+            snprintf(message, capacity, "existing injection filter is not owned by Jailbreak Lab");
+            return false;
+        }
+        if (enabled && legacy) {
+            bool migrated = ftruncate(descriptor, 0) == 0 &&
+                lseek(descriptor, 0, SEEK_SET) == 0 &&
+                write_all(
+                    descriptor, kShadowFilterContents, strlen(kShadowFilterContents)
+                ) && fsync(descriptor) == 0;
+            int saved = errno;
+            close(descriptor);
+            close(parent);
+            errno = saved;
+            if (!migrated) {
+                snprintf(message, capacity, "cannot migrate legacy injection filter: %s", strerror(errno));
+                return false;
+            }
+            *changed = true;
+            snprintf(message, capacity, "legacy injection filter narrowed to target app");
+            return true;
+        }
+        close(descriptor);
+        if (!enabled && unlinkat(parent, leaf, 0) != 0) {
+            int saved = errno;
+            close(parent);
+            errno = saved;
+            snprintf(message, capacity, "cannot remove injection filter: %s", strerror(errno));
+            return false;
+        }
+        close(parent);
+        *changed = !enabled;
+        snprintf(message, capacity, enabled ? "injection filter already enabled" : "injection filter removed");
+        return true;
+    }
     int inspection_error = errno;
-    bool succeeded = enabled
+    if (inspection_error != ENOENT) {
+        close(parent);
+        errno = inspection_error;
+        snprintf(message, capacity, "cannot inspect injection filter: %s", strerror(errno));
+        return false;
+    }
+    if (!enabled) {
+        close(parent);
+        snprintf(message, capacity, "injection filter is already absent");
+        return true;
+    }
+
+    descriptor = openat(
+        parent, leaf, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0644
+    );
+    if (descriptor < 0) {
+        int saved = errno;
+        close(parent);
+        errno = saved;
+        snprintf(message, capacity, "cannot create injection filter: %s", strerror(errno));
+        return false;
+    }
+    bool written = write_all(
+        descriptor, kShadowFilterContents, strlen(kShadowFilterContents)
+    ) && fsync(descriptor) == 0;
+    int saved = errno;
+    close(descriptor);
+    if (!written) unlinkat(parent, leaf, 0);
+    close(parent);
+    errno = saved;
+    if (!written) {
+        snprintf(message, capacity, "cannot write injection filter: %s", strerror(errno));
+        return false;
+    }
+    *changed = true;
+    snprintf(message, capacity, "target-specific injection filter created");
+    return true;
+}
+
+static void set_shadow_class_state(bool enabled, bool use_rootless, bool dry_run) {
+    char filter_path[MAX_PATH_LENGTH];
+    if (!effective_path_for_layout(
+        kShadowFilterPath, use_rootless, filter_path, sizeof(filter_path)
+    )) {
+        emit_result("ShadowRuleset", kShadowFilterPath, "failed", "filter path mapping failed");
+        return;
+    }
+    if (dry_run) {
+        emit_result(
+            "ShadowRuleset", filter_path, "planned",
+            enabled
+                ? "would create the target-specific injection filter"
+                : "would remove the target-specific injection filter"
+        );
+        return;
+    }
+
+    char message[1024];
+    struct stat marker_information;
+    bool marker_existed = lstat(kShadowClassMarkerPath, &marker_information) == 0;
+    bool marker_ready = enabled
         ? create_marker_file(
-            kShadowClassMarkerPath, false, dry_run, message, sizeof(message)
+            kShadowClassMarkerPath, false, false, message, sizeof(message)
         )
         : remove_marker_file(
-            kShadowClassMarkerPath, false, dry_run, message, sizeof(message)
+            kShadowClassMarkerPath, false, false, message, sizeof(message)
         );
-
-    if (succeeded) {
-        const char *status = dry_run
-            ? "planned"
-            : (enabled ? (existed ? "already_present" : "created") : "removed");
-        emit_result("ShadowRuleset", kShadowClassMarkerPath, status, message);
-        if (!enabled && !dry_run) prune_owned_ancestors(kShadowClassMarkerPath);
-    } else if (!enabled && !existed && inspection_error == ENOENT && errno == ENOENT) {
-        emit_result("ShadowRuleset", kShadowClassMarkerPath, "absent", "state marker is absent");
-    } else if (errno == EEXIST || errno == EPERM) {
-        emit_result("ShadowRuleset", kShadowClassMarkerPath, "protected", message);
-    } else {
-        emit_result("ShadowRuleset", kShadowClassMarkerPath, "failed", message);
+    if (!enabled && !marker_ready && errno == ENOENT) marker_ready = true;
+    if (!marker_ready) {
+        emit_result(
+            "ShadowRuleset", kShadowClassMarkerPath,
+            errno == EPERM || errno == EEXIST ? "protected" : "failed", message
+        );
+        return;
     }
+
+    bool changed = false;
+    if (!update_shadow_filter(
+        filter_path, enabled, &changed, message, sizeof(message)
+    )) {
+        char rollback_message[1024];
+        if (enabled && !marker_existed) {
+            remove_marker_file(
+                kShadowClassMarkerPath, false, false,
+                rollback_message, sizeof(rollback_message)
+            );
+            prune_owned_ancestors(kShadowClassMarkerPath);
+        } else if (!enabled && marker_existed) {
+            create_marker_file(
+                kShadowClassMarkerPath, false, false,
+                rollback_message, sizeof(rollback_message)
+            );
+        }
+        emit_result(
+            "ShadowRuleset", filter_path,
+            errno == EPERM ? "protected" : "failed", message
+        );
+        return;
+    }
+
+    if (!enabled) prune_owned_ancestors(kShadowClassMarkerPath);
+    int terminated = terminate_target_app();
+    if (terminated > 0) {
+        snprintf(
+            message, sizeof(message),
+            "injection %s; terminated %d matching target process%s",
+            enabled ? "enabled" : "disabled",
+            terminated, terminated == 1 ? "" : "es"
+        );
+    } else if (terminated == 0) {
+        snprintf(
+            message, sizeof(message),
+            "injection %s; target app was not running",
+            enabled ? "enabled" : "disabled"
+        );
+    } else {
+        snprintf(
+            message, sizeof(message),
+            "injection %s; target process lookup unavailable",
+            enabled ? "enabled" : "disabled"
+        );
+    }
+    emit_result(
+        "ShadowRuleset", filter_path,
+        changed ? (enabled ? "created" : "removed") : (enabled ? "already_present" : "absent"),
+        message
+    );
 }
 
 static bool parse_options(int argument_count, char **arguments, options_t *options) {
@@ -1971,13 +2210,14 @@ int main(int argument_count, char **arguments) {
         fprintf(stderr, "live filesystem operations require effective uid 0\n");
         return 77;
     }
-    bool restore_operation = strcmp(options.operation, "disable-write") == 0 ||
+    bool root_maintenance_operation = strcmp(options.operation, "disable-write") == 0 ||
         strcmp(options.operation, "disable-write-remove") == 0 ||
         strcmp(options.operation, "disable-symlinks") == 0 ||
+        strcmp(options.operation, "enable-objc-class") == 0 ||
         strcmp(options.operation, "disable-objc-class") == 0;
-    bool root_restore = restore_operation && getuid() == 0 && geteuid() == 0;
+    bool root_maintenance = root_maintenance_operation && getuid() == 0 && geteuid() == 0;
     if (!options.dry_run && strcmp(options.operation, "probe") != 0 &&
-        !root_restore && !caller_is_expected_app()) {
+        !root_maintenance && !caller_is_expected_app()) {
         fprintf(stderr, "live filesystem operations require the Jailbreak Lab app as direct caller\n");
         return 77;
     }
@@ -1998,8 +2238,11 @@ int main(int argument_count, char **arguments) {
 
     if (strcmp(options.operation, "enable-objc-class") == 0 ||
         strcmp(options.operation, "disable-objc-class") == 0) {
+        bool use_rootless = strcmp(options.root_mode, "rootless") == 0 ||
+            (strcmp(options.root_mode, "auto") == 0 && is_rootless_available());
         set_shadow_class_state(
             strcmp(options.operation, "enable-objc-class") == 0,
+            use_rootless,
             options.dry_run
         );
         return 0;

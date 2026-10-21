@@ -70,7 +70,7 @@ if "${binary}" --operation enable-symlinks --root-mode rootful --groups jailbrea
   exit 1
 fi
 
-if "${binary}" --operation enable-objc-class --root-mode rootful --groups jailbreak-markers --live >/dev/null 2>&1; then
+if [[ ${EUID} -ne 0 ]] && "${binary}" --operation enable-objc-class --root-mode rootful --groups jailbreak-markers --live >/dev/null 2>&1; then
   print -u2 "unauthorized Objective-C class operation was accepted"
   exit 1
 fi

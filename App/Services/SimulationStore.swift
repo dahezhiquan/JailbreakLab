@@ -47,7 +47,7 @@ final class SimulationStore: ObservableObject {
             : []
         isSuspiciousObjCClassEnabled = suspiciousObjCClassEnabled
         suspiciousObjCClassStatus = suspiciousObjCClassEnabled
-            ? "已开启：重启被测 App 后生效"
+            ? "已开启：重新打开度小满活体后生效"
             : "已关闭"
     }
 
@@ -268,8 +268,8 @@ final class SimulationStore: ObservableObject {
             isSuspiciousObjCClassEnabled = enabled
             defaults.set(enabled, forKey: Self.suspiciousObjCClassKey)
             suspiciousObjCClassStatus = enabled
-                ? "已开启：重启被测 App 后生效"
-                : "已关闭：重启被测 App 后生效"
+                ? "已开启：请重新打开度小满活体"
+                : "已关闭：请重新打开度小满活体"
         } catch {
             suspiciousObjCClassStatus = isSuspiciousObjCClassEnabled
                 ? "已开启：状态未改变"
