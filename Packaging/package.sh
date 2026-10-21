@@ -1,14 +1,15 @@
 #!/bin/zsh
 set -euo pipefail
 
-if [[ $# -ne 3 ]]; then
-  print -u2 "usage: $0 <JailbreakLab.app> <jailbreaklab-helper> <JailbreakLabShadow.dylib>"
+if [[ $# -ne 4 ]]; then
+  print -u2 "usage: $0 <JailbreakLab.app> <jailbreaklab-helper> <JailbreakLabShadow.dylib> <JailbreakLabRuntimeHook.dylib>"
   exit 64
 fi
 
 app_path=$1
 helper_path=$2
 injection_path=$3
+runtime_hook_injection_path=$4
 project_root=${0:A:h:h}
 package_root="${project_root}/Packages"
 
@@ -22,6 +23,10 @@ done
 [[ -d "${app_path}" ]] || { print -u2 "app not found: ${app_path}"; exit 66; }
 [[ -f "${helper_path}" ]] || { print -u2 "helper not found: ${helper_path}"; exit 66; }
 [[ -f "${injection_path}" ]] || { print -u2 "injection dylib not found: ${injection_path}"; exit 66; }
+[[ -f "${runtime_hook_injection_path}" ]] || {
+  print -u2 "runtime hook dylib not found: ${runtime_hook_injection_path}"
+  exit 66
+}
 mkdir -p "${package_root}"
 
 build_package() {
@@ -46,16 +51,18 @@ build_package() {
   cp -R "${app_path}" "${application_directory}/JailbreakLab.app"
   cp "${helper_path}" "${helper_directory}/jailbreaklab-helper"
   cp "${injection_path}" "${injection_directory}/JailbreakLabShadow.dylib"
+  cp "${runtime_hook_injection_path}" "${injection_directory}/JailbreakLabRuntimeHook.dylib"
   chmod 0755 "${helper_directory}/jailbreaklab-helper"
 
   ldid -S"${project_root}/App/Resources/JailbreakLab.entitlements" "${application_directory}/JailbreakLab.app/JailbreakLab"
   ldid -S"${project_root}/Helper/entitlements.plist" "${helper_directory}/jailbreaklab-helper"
   ldid -S "${injection_directory}/JailbreakLabShadow.dylib"
+  ldid -S "${injection_directory}/JailbreakLabRuntimeHook.dylib"
 
   cat > "${stage}/DEBIAN/control" <<CONTROL
 Package: com.securitylab.jailbreaklab.${scheme}
 Name: Jailbreak Lab (${scheme})
-Version: 1.7.1
+Version: 1.8.0
 Architecture: ${architecture}
 Depends: mobilesubstrate
 Description: Controlled jailbreak artifact simulator for owned security test devices.
@@ -76,6 +83,11 @@ if [ -f /private/var/db/jailbreaklab/shadow-target-state-v2 ]; then
 else
   '${installed_helper}' --operation disable-objc-class --root-mode auto --groups jailbreak-markers --live >/dev/null 2>&1 || true
 fi
+if [ -f /private/var/db/jailbreaklab/runtime-hook-target-state-v1 ]; then
+  '${installed_helper}' --operation enable-runtime-hook --root-mode auto --groups jailbreak-markers --live >/dev/null 2>&1 || true
+else
+  '${installed_helper}' --operation disable-runtime-hook --root-mode auto --groups jailbreak-markers --live >/dev/null 2>&1 || true
+fi
 uicache -p '${installed_app}' >/dev/null 2>&1 || true
 exit 0
 POSTINST
@@ -86,6 +98,7 @@ POSTINST
 case "\${1:-}" in
   remove|deconfigure)
     '${installed_helper}' --operation disable-objc-class --root-mode auto --groups jailbreak-markers --live >/dev/null 2>&1 || true
+    '${installed_helper}' --operation disable-runtime-hook --root-mode auto --groups jailbreak-markers --live >/dev/null 2>&1 || true
     '${installed_helper}' --operation disable-symlinks --root-mode auto --groups jailbreak-markers --live >/dev/null 2>&1 || true
     '${installed_helper}' --operation disable-write-remove --root-mode auto --groups jailbreak-markers --live >/dev/null 2>&1 || true
     ;;
@@ -101,7 +114,7 @@ exit 0
 POSTRM
   chmod 0755 "${stage}/DEBIAN/postrm"
 
-  local output="${package_root}/com.securitylab.jailbreaklab_1.7.1_${scheme}.deb"
+  local output="${package_root}/com.securitylab.jailbreaklab_1.8.0_${scheme}.deb"
   dpkg-deb --root-owner-group --build "${stage}" "${output}"
   print "created ${output}"
 }

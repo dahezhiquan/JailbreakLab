@@ -202,6 +202,41 @@ int main(void) {
     assert(errno == EPERM);
     assert(unlink(shadow_filter_path) == 0);
 
+    char runtime_filter_path[MAX_PATH_LENGTH];
+    snprintf(runtime_filter_path, sizeof(runtime_filter_path), "%s/runtime-filter.plist", root);
+    assert(update_runtime_hook_filter(
+        runtime_filter_path, NULL, &shadow_target, true,
+        &filter_changed, message, sizeof(message)
+    ));
+    assert(filter_changed);
+    assert(update_runtime_hook_filter(
+        runtime_filter_path, &shadow_target, &shadow_target, true,
+        &filter_changed, message, sizeof(message)
+    ));
+    assert(!filter_changed);
+    assert(update_runtime_hook_filter(
+        runtime_filter_path, &shadow_target, &shadow_target, false,
+        &filter_changed, message, sizeof(message)
+    ));
+    assert(filter_changed);
+
+    int runtime_filter = open(
+        runtime_filter_path, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, 0600
+    );
+    assert(runtime_filter >= 0);
+    assert(write_all(
+        runtime_filter,
+        kLegacyShadowFilterContents,
+        strlen(kLegacyShadowFilterContents)
+    ));
+    close(runtime_filter);
+    assert(!update_runtime_hook_filter(
+        runtime_filter_path, NULL, &shadow_target, true,
+        &filter_changed, message, sizeof(message)
+    ));
+    assert(errno == EPERM);
+    assert(unlink(runtime_filter_path) == 0);
+
     char shadow_state_path[MAX_PATH_LENGTH];
     snprintf(shadow_state_path, sizeof(shadow_state_path), "%s/shadow-state", root);
     int shadow_state = open(
@@ -218,6 +253,22 @@ int main(void) {
     ) == 0);
     close(shadow_state);
     assert(unlink(shadow_state_path) == 0);
+
+    char runtime_state_path[MAX_PATH_LENGTH];
+    snprintf(runtime_state_path, sizeof(runtime_state_path), "%s/runtime-state", root);
+    assert(save_target_state(
+        runtime_state_path, &shadow_target, message, sizeof(message)
+    ));
+    assert(save_target_state(
+        runtime_state_path, &alternate_shadow_target, message, sizeof(message)
+    ));
+    assert(load_target_state(runtime_state_path, &loaded_shadow_target));
+    assert(strcmp(
+        loaded_shadow_target.bundle_identifier,
+        alternate_shadow_target.bundle_identifier
+    ) == 0);
+    assert(remove_target_state(runtime_state_path, message, sizeof(message)));
+    assert(remove_target_state(runtime_state_path, message, sizeof(message)));
 
     assert(unlink(linked_directory) == 0);
     assert(rmdir(real_directory) == 0);

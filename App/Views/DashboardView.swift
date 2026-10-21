@@ -62,7 +62,10 @@ struct DashboardView: View {
                                 .foregroundStyle(.green)
                         }
                     }
-                    .disabled(store.isRunning || store.isSuspiciousObjCClassEnabled)
+                    .disabled(
+                        store.isRunning || store.isSuspiciousObjCClassEnabled ||
+                            store.isRuntimeHookEnabled
+                    )
 
                     strategyRows(
                         title: "可疑 Objective-C 类是否存在",
@@ -75,6 +78,19 @@ struct DashboardView: View {
                         isDisabled: store.selectedApplication == nil
                     ) { enabled in
                         await store.setSuspiciousObjCClassEnabled(enabled)
+                    }
+
+                    strategyRows(
+                        title: "Runtime Hook 检测",
+                        detail: store.selectedApplication.map {
+                            "替换 \($0.displayName) 中 -[NSProcessInfo processName] 的 IMP"
+                        } ?? "选择目标后替换 -[NSProcessInfo processName] 的 IMP",
+                        isOn: store.isRuntimeHookEnabled,
+                        status: store.runtimeHookStatus,
+                        symbol: "point.3.connected.trianglepath.dotted",
+                        isDisabled: store.selectedApplication == nil
+                    ) { enabled in
+                        await store.setRuntimeHookEnabled(enabled)
                     }
                 }
             }

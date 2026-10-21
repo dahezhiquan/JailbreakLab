@@ -6,10 +6,17 @@ temporary_directory=$(mktemp -d)
 trap 'rm -rf "${temporary_directory}"' EXIT
 binary="${temporary_directory}/jailbreaklab-helper"
 filesystem_tests="${temporary_directory}/helper-filesystem-tests"
+runtime_hook_library="${temporary_directory}/JailbreakLabRuntimeHook.dylib"
+runtime_hook_tests="${temporary_directory}/runtime-hook-tests"
 
 clang -std=c11 -Wall -Wextra -Werror "${project_root}/Helper/main.c" -o "${binary}"
 clang -std=c11 -Wall -Wextra -Werror "${project_root}/Tests/helper_filesystem_tests.c" -o "${filesystem_tests}"
 "${filesystem_tests}"
+clang -Wall -Wextra -Werror -dynamiclib -framework Foundation -lobjc \
+  "${project_root}/Injection/RuntimeHook.m" -o "${runtime_hook_library}"
+clang -Wall -Wextra -Werror -framework Foundation -ldl -lobjc \
+  "${project_root}/Tests/runtime_hook_tests.m" -o "${runtime_hook_tests}"
+"${runtime_hook_tests}" "${runtime_hook_library}"
 
 if "${binary}" --operation invalid --root-mode auto --groups jailbreak-markers --dry-run >/dev/null 2>&1; then
   print -u2 "invalid operation was accepted"
@@ -52,6 +59,13 @@ objc_output=$("${binary}" --operation enable-objc-class --root-mode rootful --gr
 print -r -- "${objc_output}" | grep -q '"path":"ShadowRuleset"'
 print -r -- "${objc_output}" | grep -q '"status":"planned"'
 
+runtime_hook_output=$("${binary}" --operation enable-runtime-hook --root-mode rootful --groups jailbreak-markers \
+  --target-bundle-id com.example.detector --target-bundle-name Detector.app \
+  --target-executable Detector --dry-run)
+print -r -- "${runtime_hook_output}" | grep -q '"path":"NSProcessInfo.processName"'
+print -r -- "${runtime_hook_output}" | grep -q '"effectivePath":"/Library/MobileSubstrate/DynamicLibraries/JailbreakLabRuntimeHook.plist"'
+print -r -- "${runtime_hook_output}" | grep -q '"status":"planned"'
+
 if "${binary}" --operation enable-objc-class --root-mode rootful --groups jailbreak-markers \
   --target-bundle-id 'invalid<&' --target-bundle-name Detector.app \
   --target-executable Detector --dry-run >/dev/null 2>&1; then
@@ -59,8 +73,22 @@ if "${binary}" --operation enable-objc-class --root-mode rootful --groups jailbr
   exit 1
 fi
 
+if "${binary}" --operation enable-runtime-hook --root-mode rootful --groups jailbreak-markers \
+  --target-bundle-id 'invalid<&' --target-bundle-name Detector.app \
+  --target-executable Detector --dry-run >/dev/null 2>&1; then
+  print -u2 "invalid Runtime Hook injection target was accepted"
+  exit 1
+fi
+
 if "${binary}" --operation apply --root-mode rootful --groups jailbreak-markers --live >/dev/null 2>&1; then
   print -u2 "unauthorized live operation was accepted"
+  exit 1
+fi
+
+if [[ ${EUID} -ne 0 ]] && "${binary}" --operation enable-runtime-hook --root-mode rootful --groups jailbreak-markers \
+  --target-bundle-id com.example.detector --target-bundle-name Detector.app \
+  --target-executable Detector --live >/dev/null 2>&1; then
+  print -u2 "unauthorized Runtime Hook operation was accepted"
   exit 1
 fi
 

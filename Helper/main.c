@@ -42,6 +42,10 @@ static const char *kShadowTargetStatePath =
     "/private/var/db/jailbreaklab/shadow-target-state-v2";
 static const char *kShadowFilterPath =
     "/Library/MobileSubstrate/DynamicLibraries/JailbreakLabShadow.plist";
+static const char *kRuntimeHookTargetStatePath =
+    "/private/var/db/jailbreaklab/runtime-hook-target-state-v1";
+static const char *kRuntimeHookFilterPath =
+    "/Library/MobileSubstrate/DynamicLibraries/JailbreakLabRuntimeHook.plist";
 static const char *kLegacyTargetShadowFilterContents =
     "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
     "<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" "
@@ -355,14 +359,16 @@ static bool path_is_within_directory(const char *path, const char *directory) {
     return path[directory_length] == '\0' || path[directory_length] == '/';
 }
 
-static bool shadow_filter_path(
+static bool injection_filter_path(
     bool use_rootless,
+    const char *rootful_path,
+    const char *filename,
     char *output,
     size_t capacity
 ) {
     if (!use_rootless) {
         return effective_path_for_layout(
-            kShadowFilterPath, false, output, capacity
+            rootful_path, false, output, capacity
         );
     }
 
@@ -394,13 +400,34 @@ static bool shadow_filter_path(
         return false;
     }
     int result = snprintf(
-        output, capacity, "%s/JailbreakLabShadow.plist", resolved_directory
+        output, capacity, "%s/%s", resolved_directory, filename
     );
     if (result <= 0 || (size_t)result >= capacity) {
         errno = ENAMETOOLONG;
         return false;
     }
     return true;
+}
+
+static bool shadow_filter_path(
+    bool use_rootless,
+    char *output,
+    size_t capacity
+) {
+    return injection_filter_path(
+        use_rootless, kShadowFilterPath, "JailbreakLabShadow.plist", output, capacity
+    );
+}
+
+static bool runtime_hook_filter_path(
+    bool use_rootless,
+    char *output,
+    size_t capacity
+) {
+    return injection_filter_path(
+        use_rootless, kRuntimeHookFilterPath, "JailbreakLabRuntimeHook.plist",
+        output, capacity
+    );
 }
 
 static bool restricted_effective_path(
@@ -2060,8 +2087,8 @@ static bool read_shadow_target_descriptor(int descriptor, shadow_target_state_t 
     return true;
 }
 
-static bool load_shadow_target_state(shadow_target_state_t *state) {
-    int descriptor = open(kShadowTargetStatePath, O_RDONLY | O_NOFOLLOW | O_CLOEXEC);
+static bool load_target_state(const char *path, shadow_target_state_t *state) {
+    int descriptor = open(path, O_RDONLY | O_NOFOLLOW | O_CLOEXEC);
     if (descriptor < 0) return false;
     bool valid = read_shadow_target_descriptor(descriptor, state);
     int saved = valid ? 0 : errno;
@@ -2070,7 +2097,12 @@ static bool load_shadow_target_state(shadow_target_state_t *state) {
     return valid;
 }
 
-static bool save_shadow_target_state(
+static bool load_shadow_target_state(shadow_target_state_t *state) {
+    return load_target_state(kShadowTargetStatePath, state);
+}
+
+static bool save_target_state(
+    const char *path,
     const shadow_target_state_t *state,
     char *message,
     size_t capacity
@@ -2081,7 +2113,7 @@ static bool save_shadow_target_state(
         return false;
     }
     char leaf[NAME_MAX + 1];
-    int parent = open_parent_directory(kShadowTargetStatePath, leaf, sizeof(leaf), true);
+    int parent = open_parent_directory(path, leaf, sizeof(leaf), true);
     if (parent < 0) {
         snprintf(message, capacity, "cannot open target state directory: %s", strerror(errno));
         return false;
@@ -2144,10 +2176,18 @@ static bool save_shadow_target_state(
     return succeeded;
 }
 
-static bool remove_shadow_target_state(char *message, size_t capacity) {
+static bool save_shadow_target_state(
+    const shadow_target_state_t *state,
+    char *message,
+    size_t capacity
+) {
+    return save_target_state(kShadowTargetStatePath, state, message, capacity);
+}
+
+static bool remove_target_state(const char *path, char *message, size_t capacity) {
     char leaf[NAME_MAX + 1];
     errno = 0;
-    int parent = open_parent_directory(kShadowTargetStatePath, leaf, sizeof(leaf), false);
+    int parent = open_parent_directory(path, leaf, sizeof(leaf), false);
     int parent_error = errno;
     if (parent < 0) {
         errno = parent_error == 0 ? EIO : parent_error;
@@ -2182,6 +2222,10 @@ static bool remove_shadow_target_state(char *message, size_t capacity) {
         removed ? "" : strerror(errno)
     );
     return removed;
+}
+
+static bool remove_shadow_target_state(char *message, size_t capacity) {
+    return remove_target_state(kShadowTargetStatePath, message, capacity);
 }
 
 static bool build_shadow_filter_contents(
@@ -2265,11 +2309,12 @@ static int terminate_target_app(const shadow_target_state_t *target) {
     return terminated;
 }
 
-static bool update_shadow_filter(
+static bool update_injection_filter(
     const char *path,
     const shadow_target_state_t *current_target,
     const shadow_target_state_t *desired_target,
     bool enabled,
+    bool accept_legacy_shadow_filters,
     bool *changed,
     char *message,
     size_t capacity
@@ -2298,9 +2343,9 @@ static bool update_shadow_filter(
         bool desired = desired_valid && fd_has_exact_signature(descriptor, desired_contents);
         bool previous = !desired && current_valid &&
             fd_has_exact_signature(descriptor, current_contents);
-        bool legacy_target = !desired && !previous &&
+        bool legacy_target = accept_legacy_shadow_filters && !desired && !previous &&
             fd_has_exact_signature(descriptor, kLegacyTargetShadowFilterContents);
-        bool legacy_wide = !desired && !previous && !legacy_target &&
+        bool legacy_wide = accept_legacy_shadow_filters && !desired && !previous && !legacy_target &&
             fd_has_exact_signature(descriptor, kLegacyShadowFilterContents);
         if (!desired && !previous && !legacy_target && !legacy_wide) {
             close(descriptor);
@@ -2377,6 +2422,36 @@ static bool update_shadow_filter(
     *changed = true;
     snprintf(message, capacity, "target-specific injection filter created");
     return true;
+}
+
+static bool update_shadow_filter(
+    const char *path,
+    const shadow_target_state_t *current_target,
+    const shadow_target_state_t *desired_target,
+    bool enabled,
+    bool *changed,
+    char *message,
+    size_t capacity
+) {
+    return update_injection_filter(
+        path, current_target, desired_target, enabled, true,
+        changed, message, capacity
+    );
+}
+
+static bool update_runtime_hook_filter(
+    const char *path,
+    const shadow_target_state_t *current_target,
+    const shadow_target_state_t *desired_target,
+    bool enabled,
+    bool *changed,
+    char *message,
+    size_t capacity
+) {
+    return update_injection_filter(
+        path, current_target, desired_target, enabled, false,
+        changed, message, capacity
+    );
 }
 
 static void set_shadow_class_state(
@@ -2519,6 +2594,144 @@ static void set_shadow_class_state(
     );
 }
 
+static void set_runtime_hook_state(
+    bool enabled,
+    bool use_rootless,
+    const char *bundle_identifier,
+    const char *bundle_name,
+    const char *executable_name,
+    bool dry_run
+) {
+    static const char *result_name = "NSProcessInfo.processName";
+    char filter_path[MAX_PATH_LENGTH];
+    if (!runtime_hook_filter_path(use_rootless, filter_path, sizeof(filter_path))) {
+        char path_message[256];
+        snprintf(
+            path_message, sizeof(path_message),
+            "cannot resolve injection directory: %s", strerror(errno)
+        );
+        emit_result(result_name, kRuntimeHookFilterPath, "failed", path_message);
+        return;
+    }
+
+    shadow_target_state_t desired_target;
+    shadow_target_state_t stored_target;
+    bool has_desired_target = valid_shadow_target(
+        bundle_identifier, bundle_name, executable_name
+    );
+    bool has_stored_target = load_target_state(
+        kRuntimeHookTargetStatePath, &stored_target
+    );
+    struct stat target_state_information;
+    bool target_state_exists = lstat(
+        kRuntimeHookTargetStatePath, &target_state_information
+    ) == 0;
+    if (target_state_exists && !has_stored_target) {
+        emit_result(
+            result_name, kRuntimeHookTargetStatePath, "protected",
+            "existing target state is not owned by Jailbreak Lab"
+        );
+        return;
+    }
+    if (enabled && !has_desired_target && !has_stored_target) {
+        emit_result(result_name, filter_path, "failed", "a valid target app is required");
+        return;
+    }
+    if (has_desired_target) {
+        initialize_shadow_target(
+            &desired_target, bundle_identifier, bundle_name, executable_name
+        );
+    }
+    shadow_target_state_t *active_target = enabled && has_desired_target
+        ? &desired_target
+        : (has_stored_target ? &stored_target : (has_desired_target ? &desired_target : NULL));
+
+    if (dry_run) {
+        emit_result(
+            result_name, filter_path, "planned",
+            enabled
+                ? "would create the target-specific runtime hook filter"
+                : "would remove the target-specific runtime hook filter"
+        );
+        return;
+    }
+
+    char message[1024];
+    bool changed = false;
+    if (!update_runtime_hook_filter(
+        filter_path,
+        has_stored_target ? &stored_target : NULL,
+        active_target,
+        enabled,
+        &changed,
+        message,
+        sizeof(message)
+    )) {
+        emit_result(
+            result_name, filter_path,
+            errno == EPERM ? "protected" : "failed", message
+        );
+        return;
+    }
+
+    if (enabled && !save_target_state(
+        kRuntimeHookTargetStatePath, active_target, message, sizeof(message)
+    )) {
+        char rollback_message[1024];
+        bool rollback_changed = false;
+        update_runtime_hook_filter(
+            filter_path,
+            active_target,
+            has_stored_target ? &stored_target : NULL,
+            has_stored_target,
+            &rollback_changed,
+            rollback_message,
+            sizeof(rollback_message)
+        );
+        emit_result(
+            result_name, kRuntimeHookTargetStatePath,
+            errno == EPERM ? "protected" : "failed", message
+        );
+        return;
+    }
+    if (!enabled && !remove_target_state(
+        kRuntimeHookTargetStatePath, message, sizeof(message)
+    )) {
+        emit_result(
+            result_name, kRuntimeHookTargetStatePath,
+            errno == EPERM ? "protected" : "failed", message
+        );
+        return;
+    }
+
+    int terminated = active_target == NULL ? 0 : terminate_target_app(active_target);
+    if (terminated > 0) {
+        snprintf(
+            message, sizeof(message),
+            "runtime hook %s; terminated %d matching target process%s",
+            enabled ? "enabled" : "disabled",
+            terminated, terminated == 1 ? "" : "es"
+        );
+    } else if (terminated == 0) {
+        snprintf(
+            message, sizeof(message),
+            "runtime hook %s; target app was not running",
+            enabled ? "enabled" : "disabled"
+        );
+    } else {
+        snprintf(
+            message, sizeof(message),
+            "runtime hook %s; target process lookup unavailable",
+            enabled ? "enabled" : "disabled"
+        );
+    }
+    emit_result(
+        result_name, filter_path,
+        changed ? (enabled ? "created" : "removed") : (enabled ? "already_present" : "absent"),
+        message
+    );
+}
+
 static bool parse_options(int argument_count, char **arguments, options_t *options) {
     memset(options, 0, sizeof(*options));
     for (int index = 1; index < argument_count; index++) {
@@ -2556,7 +2769,9 @@ static bool parse_options(int argument_count, char **arguments, options_t *optio
          strcmp(options->operation, "enable-symlinks") == 0 ||
          strcmp(options->operation, "disable-symlinks") == 0 ||
          strcmp(options->operation, "enable-objc-class") == 0 ||
-         strcmp(options->operation, "disable-objc-class") == 0);
+         strcmp(options->operation, "disable-objc-class") == 0 ||
+         strcmp(options->operation, "enable-runtime-hook") == 0 ||
+         strcmp(options->operation, "disable-runtime-hook") == 0);
     bool root_mode_valid = options->root_mode != NULL &&
         (strcmp(options->root_mode, "auto") == 0 ||
          strcmp(options->root_mode, "rootful") == 0 ||
@@ -2570,13 +2785,15 @@ static bool parse_options(int argument_count, char **arguments, options_t *optio
             options->target_bundle_name,
             options->target_executable
         );
-    bool enabling_objc = options->operation != NULL &&
-        strcmp(options->operation, "enable-objc-class") == 0;
-    bool disabling_objc = options->operation != NULL &&
-        strcmp(options->operation, "disable-objc-class") == 0;
-    bool target_valid_for_operation = enabling_objc
+    bool enabling_injection = options->operation != NULL &&
+        (strcmp(options->operation, "enable-objc-class") == 0 ||
+         strcmp(options->operation, "enable-runtime-hook") == 0);
+    bool disabling_injection = options->operation != NULL &&
+        (strcmp(options->operation, "disable-objc-class") == 0 ||
+         strcmp(options->operation, "disable-runtime-hook") == 0);
+    bool target_valid_for_operation = enabling_injection
         ? (!any_target || complete_target)
-        : (disabling_objc ? (!any_target || complete_target) : !any_target);
+        : (disabling_injection ? (!any_target || complete_target) : !any_target);
     return operation_valid && root_mode_valid && valid_group_list(options->groups) &&
         target_valid_for_operation;
 }
@@ -2632,7 +2849,9 @@ int main(int argument_count, char **arguments) {
         strcmp(options.operation, "disable-write-remove") == 0 ||
         strcmp(options.operation, "disable-symlinks") == 0 ||
         strcmp(options.operation, "enable-objc-class") == 0 ||
-        strcmp(options.operation, "disable-objc-class") == 0;
+        strcmp(options.operation, "disable-objc-class") == 0 ||
+        strcmp(options.operation, "enable-runtime-hook") == 0 ||
+        strcmp(options.operation, "disable-runtime-hook") == 0;
     bool root_maintenance = root_maintenance_operation && getuid() == 0 && geteuid() == 0;
     if (!options.dry_run && strcmp(options.operation, "probe") != 0 &&
         !root_maintenance && !caller_is_expected_app()) {
@@ -2660,6 +2879,21 @@ int main(int argument_count, char **arguments) {
             (strcmp(options.root_mode, "auto") == 0 && is_rootless_available());
         set_shadow_class_state(
             strcmp(options.operation, "enable-objc-class") == 0,
+            use_rootless,
+            options.target_bundle_id,
+            options.target_bundle_name,
+            options.target_executable,
+            options.dry_run
+        );
+        return 0;
+    }
+
+    if (strcmp(options.operation, "enable-runtime-hook") == 0 ||
+        strcmp(options.operation, "disable-runtime-hook") == 0) {
+        bool use_rootless = strcmp(options.root_mode, "rootless") == 0 ||
+            (strcmp(options.root_mode, "auto") == 0 && is_rootless_available());
+        set_runtime_hook_state(
+            strcmp(options.operation, "enable-runtime-hook") == 0,
             use_rootless,
             options.target_bundle_id,
             options.target_bundle_name,

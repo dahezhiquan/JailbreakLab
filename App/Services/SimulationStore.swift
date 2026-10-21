@@ -13,6 +13,8 @@ final class SimulationStore: ObservableObject {
     @Published private(set) var abnormalSymlinksDetails: [String]
     @Published private(set) var isSuspiciousObjCClassEnabled: Bool
     @Published private(set) var suspiciousObjCClassStatus: String
+    @Published private(set) var isRuntimeHookEnabled: Bool
+    @Published private(set) var runtimeHookStatus: String
     @Published private(set) var installedApplications: [InstalledApplication] = []
     @Published private(set) var selectedApplication: InstalledApplication?
     @Published private(set) var isLoadingApplications = false
@@ -27,6 +29,7 @@ final class SimulationStore: ObservableObject {
     private static let restrictedWriteKey = "RestrictedWriteEnvironmentEnabled"
     private static let abnormalSymlinksKey = "AbnormalSymlinksEnvironmentEnabled"
     private static let suspiciousObjCClassKey = "SuspiciousObjCClassEnvironmentEnabled"
+    private static let runtimeHookKey = "RuntimeHookEnvironmentEnabled"
     private static let selectedApplicationKey = "SuspiciousObjCClassTargetApplication"
 
     init(
@@ -45,12 +48,17 @@ final class SimulationStore: ObservableObject {
         var suspiciousObjCClassEnabled = defaults.bool(
             forKey: Self.suspiciousObjCClassKey
         )
+        var runtimeHookEnabled = defaults.bool(forKey: Self.runtimeHookKey)
         let storedApplication = defaults.data(forKey: Self.selectedApplicationKey)
             .flatMap { try? JSONDecoder().decode(InstalledApplication.self, from: $0) }
             .flatMap { $0.isValidInjectionTarget ? $0 : nil }
         if suspiciousObjCClassEnabled && storedApplication == nil {
             suspiciousObjCClassEnabled = false
             defaults.set(false, forKey: Self.suspiciousObjCClassKey)
+        }
+        if runtimeHookEnabled && storedApplication == nil {
+            runtimeHookEnabled = false
+            defaults.set(false, forKey: Self.runtimeHookKey)
         }
         isSuspiciousFilesEnabled = suspiciousFilesEnabled
         suspiciousFilesStatus = suspiciousFilesEnabled ? "已开启" : "已关闭"
@@ -69,6 +77,10 @@ final class SimulationStore: ObservableObject {
         isSuspiciousObjCClassEnabled = suspiciousObjCClassEnabled
         selectedApplication = storedApplication
         suspiciousObjCClassStatus = suspiciousObjCClassEnabled
+            ? "已开启：重新打开\(storedApplication?.displayName ?? "目标 App")后生效"
+            : (storedApplication == nil ? "已关闭：请选择检测 App" : "已关闭")
+        isRuntimeHookEnabled = runtimeHookEnabled
+        runtimeHookStatus = runtimeHookEnabled
             ? "已开启：重新打开\(storedApplication?.displayName ?? "目标 App")后生效"
             : (storedApplication == nil ? "已关闭：请选择检测 App" : "已关闭")
     }
@@ -92,11 +104,12 @@ final class SimulationStore: ObservableObject {
     }
 
     func selectApplication(_ application: InstalledApplication) {
-        guard !isSuspiciousObjCClassEnabled, !isRunning,
+        guard !isSuspiciousObjCClassEnabled, !isRuntimeHookEnabled, !isRunning,
               application.isValidInjectionTarget else { return }
         selectedApplication = application
         persistSelectedApplication(application)
         suspiciousObjCClassStatus = "已关闭"
+        runtimeHookStatus = "已关闭"
     }
 
     func setSuspiciousFilesEnabled(_ enabled: Bool) async {
@@ -327,6 +340,47 @@ final class SimulationStore: ObservableObject {
                 : "已关闭：请重新打开\(targetName)"
         } catch {
             suspiciousObjCClassStatus = isSuspiciousObjCClassEnabled
+                ? "已开启：状态未改变"
+                : "已关闭"
+            alertMessage = error.localizedDescription
+        }
+    }
+
+    func setRuntimeHookEnabled(_ enabled: Bool) async {
+        guard enabled != isRuntimeHookEnabled, !isRunning else { return }
+        if enabled && selectedApplication?.isValidInjectionTarget != true {
+            alertMessage = "请先选择检测 App。"
+            runtimeHookStatus = "已关闭：请选择检测 App"
+            return
+        }
+        isRunning = true
+        defer { isRunning = false }
+        runtimeHookStatus = enabled ? "正在启用 Runtime Hook…" : "正在停用 Runtime Hook…"
+
+        do {
+            let operationResults = try await helperClient.run(
+                operation: enabled ? "enable-runtime-hook" : "disable-runtime-hook",
+                rootLayout: .automatic,
+                strategies: Set(EnvironmentStrategy.allCases),
+                targetApplication: selectedApplication,
+                dryRun: false
+            )
+            results = operationResults
+            guard let result = operationResults.first else {
+                throw HelperClientError.invalidOutput
+            }
+            if isOperationFailure(result) {
+                throw HelperClientError.operationRejected(result.message)
+            }
+
+            isRuntimeHookEnabled = enabled
+            defaults.set(enabled, forKey: Self.runtimeHookKey)
+            let targetName = selectedApplication?.displayName ?? "目标 App"
+            runtimeHookStatus = enabled
+                ? "已开启：请重新打开\(targetName)"
+                : "已关闭：请重新打开\(targetName)"
+        } catch {
+            runtimeHookStatus = isRuntimeHookEnabled
                 ? "已开启：状态未改变"
                 : "已关闭"
             alertMessage = error.localizedDescription

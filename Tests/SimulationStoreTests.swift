@@ -9,6 +9,7 @@ final class SimulationStoreTests: XCTestCase {
         XCTAssertFalse(store.suspiciousFilesStatus.isEmpty)
         XCTAssertFalse(store.restrictedWriteStatus.isEmpty)
         XCTAssertFalse(store.suspiciousObjCClassStatus.isEmpty)
+        XCTAssertFalse(store.runtimeHookStatus.isEmpty)
     }
 
     func testSingleSwitchCoversEveryArtifactGroup() {
@@ -69,5 +70,19 @@ final class SimulationStoreTests: XCTestCase {
 
         XCTAssertEqual(store.selectedApplication, target)
         XCTAssertEqual(store.suspiciousObjCClassStatus, "已关闭")
+        XCTAssertEqual(store.runtimeHookStatus, "已关闭")
+    }
+
+    func testLegacyRuntimeHookStateWithoutTargetIsResetForSelection() {
+        let suiteName = "SimulationStoreTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set(true, forKey: "RuntimeHookEnvironmentEnabled")
+
+        let store = SimulationStore(defaults: defaults, applicationLoader: { [] })
+
+        XCTAssertNil(store.selectedApplication)
+        XCTAssertFalse(store.isRuntimeHookEnabled)
+        XCTAssertEqual(store.runtimeHookStatus, "已关闭：请选择检测 App")
     }
 }
