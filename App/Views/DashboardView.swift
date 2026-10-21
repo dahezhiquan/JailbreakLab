@@ -64,7 +64,7 @@ struct DashboardView: View {
                     }
                     .disabled(
                         store.isRunning || store.isSuspiciousObjCClassEnabled ||
-                            store.isRuntimeHookEnabled
+                            store.isRuntimeHookEnabled || store.isMSHookEnabled
                     )
 
                     strategyRows(
@@ -91,6 +91,19 @@ struct DashboardView: View {
                         isDisabled: store.selectedApplication == nil
                     ) { enabled in
                         await store.setRuntimeHookEnabled(enabled)
+                    }
+
+                    strategyRows(
+                        title: "MSHookFunction 检测",
+                        detail: store.selectedApplication.map {
+                            "在\($0.displayName) 中 inline hook getpid"
+                        } ?? "选择目标后 inline hook getpid",
+                        isOn: store.isMSHookEnabled,
+                        status: store.mshookStatus,
+                        symbol: "arrow.triangle.branch",
+                        isDisabled: store.selectedApplication == nil
+                    ) { enabled in
+                        await store.setMSHookEnabled(enabled)
                     }
                 }
             }

@@ -46,6 +46,10 @@ static const char *kRuntimeHookTargetStatePath =
     "/private/var/db/jailbreaklab/runtime-hook-target-state-v1";
 static const char *kRuntimeHookFilterPath =
     "/Library/MobileSubstrate/DynamicLibraries/JailbreakLabRuntimeHook.plist";
+static const char *kMSHookTargetStatePath =
+    "/private/var/db/jailbreaklab/mshook-target-state-v1";
+static const char *kMSHookFilterPath =
+    "/Library/MobileSubstrate/DynamicLibraries/JailbreakLabMSHook.plist";
 static const char *kLegacyTargetShadowFilterContents =
     "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
     "<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" "
@@ -426,6 +430,17 @@ static bool runtime_hook_filter_path(
 ) {
     return injection_filter_path(
         use_rootless, kRuntimeHookFilterPath, "JailbreakLabRuntimeHook.plist",
+        output, capacity
+    );
+}
+
+static bool mshook_filter_path(
+    bool use_rootless,
+    char *output,
+    size_t capacity
+) {
+    return injection_filter_path(
+        use_rootless, kMSHookFilterPath, "JailbreakLabMSHook.plist",
         output, capacity
     );
 }
@@ -2732,6 +2747,144 @@ static void set_runtime_hook_state(
     );
 }
 
+static void set_mshook_state(
+    bool enabled,
+    bool use_rootless,
+    const char *bundle_identifier,
+    const char *bundle_name,
+    const char *executable_name,
+    bool dry_run
+) {
+    static const char *result_name = "getpid";
+    char filter_path[MAX_PATH_LENGTH];
+    if (!mshook_filter_path(use_rootless, filter_path, sizeof(filter_path))) {
+        char path_message[256];
+        snprintf(
+            path_message, sizeof(path_message),
+            "cannot resolve injection directory: %s", strerror(errno)
+        );
+        emit_result(result_name, kMSHookFilterPath, "failed", path_message);
+        return;
+    }
+
+    shadow_target_state_t desired_target;
+    shadow_target_state_t stored_target;
+    bool has_desired_target = valid_shadow_target(
+        bundle_identifier, bundle_name, executable_name
+    );
+    bool has_stored_target = load_target_state(
+        kMSHookTargetStatePath, &stored_target
+    );
+    struct stat target_state_information;
+    bool target_state_exists = lstat(
+        kMSHookTargetStatePath, &target_state_information
+    ) == 0;
+    if (target_state_exists && !has_stored_target) {
+        emit_result(
+            result_name, kMSHookTargetStatePath, "protected",
+            "existing target state is not owned by Jailbreak Lab"
+        );
+        return;
+    }
+    if (enabled && !has_desired_target && !has_stored_target) {
+        emit_result(result_name, filter_path, "failed", "a valid target app is required");
+        return;
+    }
+    if (has_desired_target) {
+        initialize_shadow_target(
+            &desired_target, bundle_identifier, bundle_name, executable_name
+        );
+    }
+    shadow_target_state_t *active_target = enabled && has_desired_target
+        ? &desired_target
+        : (has_stored_target ? &stored_target : (has_desired_target ? &desired_target : NULL));
+
+    if (dry_run) {
+        emit_result(
+            result_name, filter_path, "planned",
+            enabled
+                ? "would create the target-specific MSHookFunction filter"
+                : "would remove the target-specific MSHookFunction filter"
+        );
+        return;
+    }
+
+    char message[1024];
+    bool changed = false;
+    if (!update_runtime_hook_filter(
+        filter_path,
+        has_stored_target ? &stored_target : NULL,
+        active_target,
+        enabled,
+        &changed,
+        message,
+        sizeof(message)
+    )) {
+        emit_result(
+            result_name, filter_path,
+            errno == EPERM ? "protected" : "failed", message
+        );
+        return;
+    }
+
+    if (enabled && !save_target_state(
+        kMSHookTargetStatePath, active_target, message, sizeof(message)
+    )) {
+        char rollback_message[1024];
+        bool rollback_changed = false;
+        update_runtime_hook_filter(
+            filter_path,
+            active_target,
+            has_stored_target ? &stored_target : NULL,
+            has_stored_target,
+            &rollback_changed,
+            rollback_message,
+            sizeof(rollback_message)
+        );
+        emit_result(
+            result_name, kMSHookTargetStatePath,
+            errno == EPERM ? "protected" : "failed", message
+        );
+        return;
+    }
+    if (!enabled && !remove_target_state(
+        kMSHookTargetStatePath, message, sizeof(message)
+    )) {
+        emit_result(
+            result_name, kMSHookTargetStatePath,
+            errno == EPERM ? "protected" : "failed", message
+        );
+        return;
+    }
+
+    int terminated = active_target == NULL ? 0 : terminate_target_app(active_target);
+    if (terminated > 0) {
+        snprintf(
+            message, sizeof(message),
+            "MSHookFunction %s; terminated %d matching target process%s",
+            enabled ? "enabled" : "disabled",
+            terminated, terminated == 1 ? "" : "es"
+        );
+    } else if (terminated == 0) {
+        snprintf(
+            message, sizeof(message),
+            "MSHookFunction %s; target app was not running",
+            enabled ? "enabled" : "disabled"
+        );
+    } else {
+        snprintf(
+            message, sizeof(message),
+            "MSHookFunction %s; target process lookup unavailable",
+            enabled ? "enabled" : "disabled"
+        );
+    }
+    emit_result(
+        result_name, filter_path,
+        changed ? (enabled ? "created" : "removed") : (enabled ? "already_present" : "absent"),
+        message
+    );
+}
+
 static bool parse_options(int argument_count, char **arguments, options_t *options) {
     memset(options, 0, sizeof(*options));
     for (int index = 1; index < argument_count; index++) {
@@ -2771,7 +2924,9 @@ static bool parse_options(int argument_count, char **arguments, options_t *optio
          strcmp(options->operation, "enable-objc-class") == 0 ||
          strcmp(options->operation, "disable-objc-class") == 0 ||
          strcmp(options->operation, "enable-runtime-hook") == 0 ||
-         strcmp(options->operation, "disable-runtime-hook") == 0);
+         strcmp(options->operation, "disable-runtime-hook") == 0 ||
+         strcmp(options->operation, "enable-mshook") == 0 ||
+         strcmp(options->operation, "disable-mshook") == 0);
     bool root_mode_valid = options->root_mode != NULL &&
         (strcmp(options->root_mode, "auto") == 0 ||
          strcmp(options->root_mode, "rootful") == 0 ||
@@ -2787,10 +2942,12 @@ static bool parse_options(int argument_count, char **arguments, options_t *optio
         );
     bool enabling_injection = options->operation != NULL &&
         (strcmp(options->operation, "enable-objc-class") == 0 ||
-         strcmp(options->operation, "enable-runtime-hook") == 0);
+         strcmp(options->operation, "enable-runtime-hook") == 0 ||
+         strcmp(options->operation, "enable-mshook") == 0);
     bool disabling_injection = options->operation != NULL &&
         (strcmp(options->operation, "disable-objc-class") == 0 ||
-         strcmp(options->operation, "disable-runtime-hook") == 0);
+         strcmp(options->operation, "disable-runtime-hook") == 0 ||
+         strcmp(options->operation, "disable-mshook") == 0);
     bool target_valid_for_operation = enabling_injection
         ? (!any_target || complete_target)
         : (disabling_injection ? (!any_target || complete_target) : !any_target);
@@ -2851,7 +3008,9 @@ int main(int argument_count, char **arguments) {
         strcmp(options.operation, "enable-objc-class") == 0 ||
         strcmp(options.operation, "disable-objc-class") == 0 ||
         strcmp(options.operation, "enable-runtime-hook") == 0 ||
-        strcmp(options.operation, "disable-runtime-hook") == 0;
+        strcmp(options.operation, "disable-runtime-hook") == 0 ||
+        strcmp(options.operation, "enable-mshook") == 0 ||
+        strcmp(options.operation, "disable-mshook") == 0;
     bool root_maintenance = root_maintenance_operation && getuid() == 0 && geteuid() == 0;
     if (!options.dry_run && strcmp(options.operation, "probe") != 0 &&
         !root_maintenance && !caller_is_expected_app()) {
@@ -2894,6 +3053,21 @@ int main(int argument_count, char **arguments) {
             (strcmp(options.root_mode, "auto") == 0 && is_rootless_available());
         set_runtime_hook_state(
             strcmp(options.operation, "enable-runtime-hook") == 0,
+            use_rootless,
+            options.target_bundle_id,
+            options.target_bundle_name,
+            options.target_executable,
+            options.dry_run
+        );
+        return 0;
+    }
+
+    if (strcmp(options.operation, "enable-mshook") == 0 ||
+        strcmp(options.operation, "disable-mshook") == 0) {
+        bool use_rootless = strcmp(options.root_mode, "rootless") == 0 ||
+            (strcmp(options.root_mode, "auto") == 0 && is_rootless_available());
+        set_mshook_state(
+            strcmp(options.operation, "enable-mshook") == 0,
             use_rootless,
             options.target_bundle_id,
             options.target_bundle_name,

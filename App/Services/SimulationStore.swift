@@ -15,6 +15,8 @@ final class SimulationStore: ObservableObject {
     @Published private(set) var suspiciousObjCClassStatus: String
     @Published private(set) var isRuntimeHookEnabled: Bool
     @Published private(set) var runtimeHookStatus: String
+    @Published private(set) var isMSHookEnabled: Bool
+    @Published private(set) var mshookStatus: String
     @Published private(set) var installedApplications: [InstalledApplication] = []
     @Published private(set) var selectedApplication: InstalledApplication?
     @Published private(set) var isLoadingApplications = false
@@ -30,6 +32,7 @@ final class SimulationStore: ObservableObject {
     private static let abnormalSymlinksKey = "AbnormalSymlinksEnvironmentEnabled"
     private static let suspiciousObjCClassKey = "SuspiciousObjCClassEnvironmentEnabled"
     private static let runtimeHookKey = "RuntimeHookEnvironmentEnabled"
+    private static let mshookKey = "MSHookEnvironmentEnabled"
     private static let selectedApplicationKey = "SuspiciousObjCClassTargetApplication"
 
     init(
@@ -49,6 +52,7 @@ final class SimulationStore: ObservableObject {
             forKey: Self.suspiciousObjCClassKey
         )
         var runtimeHookEnabled = defaults.bool(forKey: Self.runtimeHookKey)
+        var mshookEnabled = defaults.bool(forKey: Self.mshookKey)
         let storedApplication = defaults.data(forKey: Self.selectedApplicationKey)
             .flatMap { try? JSONDecoder().decode(InstalledApplication.self, from: $0) }
             .flatMap { $0.isValidInjectionTarget ? $0 : nil }
@@ -59,6 +63,10 @@ final class SimulationStore: ObservableObject {
         if runtimeHookEnabled && storedApplication == nil {
             runtimeHookEnabled = false
             defaults.set(false, forKey: Self.runtimeHookKey)
+        }
+        if mshookEnabled && storedApplication == nil {
+            mshookEnabled = false
+            defaults.set(false, forKey: Self.mshookKey)
         }
         isSuspiciousFilesEnabled = suspiciousFilesEnabled
         suspiciousFilesStatus = suspiciousFilesEnabled ? "已开启" : "已关闭"
@@ -83,6 +91,10 @@ final class SimulationStore: ObservableObject {
         runtimeHookStatus = runtimeHookEnabled
             ? "已开启：重新打开\(storedApplication?.displayName ?? "目标 App")后生效"
             : (storedApplication == nil ? "已关闭：请选择检测 App" : "已关闭")
+        isMSHookEnabled = mshookEnabled
+        mshookStatus = mshookEnabled
+            ? "已开启：重新打开\(storedApplication?.displayName ?? "目标 App")后生效"
+            : (storedApplication == nil ? "已关闭：请选择检测 App" : "已关闭")
     }
 
     func refreshInstalledApplications() async {
@@ -104,12 +116,13 @@ final class SimulationStore: ObservableObject {
     }
 
     func selectApplication(_ application: InstalledApplication) {
-        guard !isSuspiciousObjCClassEnabled, !isRuntimeHookEnabled, !isRunning,
+        guard !isSuspiciousObjCClassEnabled, !isRuntimeHookEnabled, !isMSHookEnabled, !isRunning,
               application.isValidInjectionTarget else { return }
         selectedApplication = application
         persistSelectedApplication(application)
         suspiciousObjCClassStatus = "已关闭"
         runtimeHookStatus = "已关闭"
+        mshookStatus = "已关闭"
     }
 
     func setSuspiciousFilesEnabled(_ enabled: Bool) async {
@@ -381,6 +394,47 @@ final class SimulationStore: ObservableObject {
                 : "已关闭：请重新打开\(targetName)"
         } catch {
             runtimeHookStatus = isRuntimeHookEnabled
+                ? "已开启：状态未改变"
+                : "已关闭"
+            alertMessage = error.localizedDescription
+        }
+    }
+
+    func setMSHookEnabled(_ enabled: Bool) async {
+        guard enabled != isMSHookEnabled, !isRunning else { return }
+        if enabled && selectedApplication?.isValidInjectionTarget != true {
+            alertMessage = "请先选择检测 App。"
+            mshookStatus = "已关闭：请选择检测 App"
+            return
+        }
+        isRunning = true
+        defer { isRunning = false }
+        mshookStatus = enabled ? "正在启用 MSHookFunction…" : "正在停用 MSHookFunction…"
+
+        do {
+            let operationResults = try await helperClient.run(
+                operation: enabled ? "enable-mshook" : "disable-mshook",
+                rootLayout: .automatic,
+                strategies: Set(EnvironmentStrategy.allCases),
+                targetApplication: selectedApplication,
+                dryRun: false
+            )
+            results = operationResults
+            guard let result = operationResults.first else {
+                throw HelperClientError.invalidOutput
+            }
+            if isOperationFailure(result) {
+                throw HelperClientError.operationRejected(result.message)
+            }
+
+            isMSHookEnabled = enabled
+            defaults.set(enabled, forKey: Self.mshookKey)
+            let targetName = selectedApplication?.displayName ?? "目标 App"
+            mshookStatus = enabled
+                ? "已开启：请重新打开\(targetName)"
+                : "已关闭：请重新打开\(targetName)"
+        } catch {
+            mshookStatus = isMSHookEnabled
                 ? "已开启：状态未改变"
                 : "已关闭"
             alertMessage = error.localizedDescription

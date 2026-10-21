@@ -6,6 +6,7 @@ APP := $(BUILD_DIR)/Release-iphoneos/JailbreakLab.app
 HELPER := $(BUILD_DIR)/jailbreaklab-helper
 INJECTION := $(BUILD_DIR)/JailbreakLabShadow.dylib
 RUNTIME_HOOK_INJECTION := $(BUILD_DIR)/JailbreakLabRuntimeHook.dylib
+MSHOOK_INJECTION := $(BUILD_DIR)/JailbreakLabMSHook.dylib
 
 .PHONY: project app helper injection package clean test-helper
 
@@ -26,14 +27,16 @@ injection:
 	mkdir -p $(BUILD_DIR)
 	$$(xcrun --sdk iphoneos --find clang) -arch arm64 -isysroot $$(xcrun --sdk iphoneos --show-sdk-path) -miphoneos-version-min=16.0 -Os -Wall -Wextra -Werror -dynamiclib -fvisibility=hidden -Wl,-install_name,@rpath/JailbreakLabShadow.dylib -lobjc Injection/ShadowRuntime.m -o $(INJECTION)
 	$$(xcrun --sdk iphoneos --find clang) -arch arm64 -isysroot $$(xcrun --sdk iphoneos --show-sdk-path) -miphoneos-version-min=16.0 -Os -Wall -Wextra -Werror -dynamiclib -fvisibility=hidden -Wl,-install_name,@rpath/JailbreakLabRuntimeHook.dylib -lobjc Injection/RuntimeHook.m -o $(RUNTIME_HOOK_INJECTION)
+	$$(xcrun --sdk iphoneos --find clang) -arch arm64 -isysroot $$(xcrun --sdk iphoneos --show-sdk-path) -miphoneos-version-min=16.0 -Os -Wall -Wextra -Werror -dynamiclib -fvisibility=hidden -Wl,-install_name,@rpath/JailbreakLabMSHook.dylib Injection/MSHookFunction.c -o $(MSHOOK_INJECTION)
 
 package: app helper injection
-	./Packaging/package.sh $(APP) $(HELPER) $(INJECTION) $(RUNTIME_HOOK_INJECTION)
+	./Packaging/package.sh $(APP) $(HELPER) $(INJECTION) $(RUNTIME_HOOK_INJECTION) $(MSHOOK_INJECTION)
 
 test-helper:
 	./Tests/run_helper_tests.sh
 	clang -fsyntax-only -Wall -Wextra -Werror Injection/ShadowRuntime.m
 	clang -fsyntax-only -Wall -Wextra -Werror Injection/RuntimeHook.m
+	clang -fsyntax-only -Wall -Wextra -Werror Injection/MSHookFunction.c
 
 clean:
 	rm -rf $(BUILD_DIR) $(PROJECT) Packages
