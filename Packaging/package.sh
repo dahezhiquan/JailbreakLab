@@ -1,8 +1,8 @@
 #!/bin/zsh
 set -euo pipefail
 
-if [[ $# -ne 5 ]]; then
-  print -u2 "usage: $0 <JailbreakLab.app> <jailbreaklab-helper> <JailbreakLabShadow.dylib> <JailbreakLabRuntimeHook.dylib> <JailbreakLabMSHook.dylib>"
+if [[ $# -ne 6 ]]; then
+  print -u2 "usage: $0 <JailbreakLab.app> <jailbreaklab-helper> <JailbreakLabShadow.dylib> <JailbreakLabRuntimeHook.dylib> <JailbreakLabMSHook.dylib> <JailbreakLabDebugger.dylib>"
   exit 64
 fi
 
@@ -11,6 +11,7 @@ helper_path=$2
 injection_path=$3
 runtime_hook_injection_path=$4
 mshook_injection_path=$5
+debugger_injection_path=$6
 project_root=${0:A:h:h}
 package_root="${project_root}/Packages"
 
@@ -30,6 +31,10 @@ done
 }
 [[ -f "${mshook_injection_path}" ]] || {
   print -u2 "MSHookFunction dylib not found: ${mshook_injection_path}"
+  exit 66
+}
+[[ -f "${debugger_injection_path}" ]] || {
+  print -u2 "debugger state dylib not found: ${debugger_injection_path}"
   exit 66
 }
 mkdir -p "${package_root}"
@@ -58,6 +63,7 @@ build_package() {
   cp "${injection_path}" "${injection_directory}/JailbreakLabShadow.dylib"
   cp "${runtime_hook_injection_path}" "${injection_directory}/JailbreakLabRuntimeHook.dylib"
   cp "${mshook_injection_path}" "${injection_directory}/JailbreakLabMSHook.dylib"
+  cp "${debugger_injection_path}" "${injection_directory}/JailbreakLabDebugger.dylib"
   chmod 0755 "${helper_directory}/jailbreaklab-helper"
 
   ldid -S"${project_root}/App/Resources/JailbreakLab.entitlements" "${application_directory}/JailbreakLab.app/JailbreakLab"
@@ -65,11 +71,12 @@ build_package() {
   ldid -S "${injection_directory}/JailbreakLabShadow.dylib"
   ldid -S "${injection_directory}/JailbreakLabRuntimeHook.dylib"
   ldid -S "${injection_directory}/JailbreakLabMSHook.dylib"
+  ldid -S "${injection_directory}/JailbreakLabDebugger.dylib"
 
   cat > "${stage}/DEBIAN/control" <<CONTROL
 Package: com.securitylab.jailbreaklab.${scheme}
 Name: Jailbreak Lab (${scheme})
-Version: 1.9.0
+Version: 1.10.0
 Architecture: ${architecture}
 Depends: mobilesubstrate
 Description: Controlled jailbreak artifact simulator for owned security test devices.
@@ -100,6 +107,11 @@ if [ -f /private/var/db/jailbreaklab/mshook-target-state-v1 ]; then
 else
   '${installed_helper}' --operation disable-mshook --root-mode auto --groups jailbreak-markers --live >/dev/null 2>&1 || true
 fi
+if [ -f /private/var/db/jailbreaklab/debugger-target-state-v1 ]; then
+  '${installed_helper}' --operation enable-debugger --root-mode auto --groups jailbreak-markers --live >/dev/null 2>&1 || true
+else
+  '${installed_helper}' --operation disable-debugger --root-mode auto --groups jailbreak-markers --live >/dev/null 2>&1 || true
+fi
 uicache -p '${installed_app}' >/dev/null 2>&1 || true
 exit 0
 POSTINST
@@ -112,6 +124,7 @@ case "\${1:-}" in
     '${installed_helper}' --operation disable-objc-class --root-mode auto --groups jailbreak-markers --live >/dev/null 2>&1 || true
     '${installed_helper}' --operation disable-runtime-hook --root-mode auto --groups jailbreak-markers --live >/dev/null 2>&1 || true
     '${installed_helper}' --operation disable-mshook --root-mode auto --groups jailbreak-markers --live >/dev/null 2>&1 || true
+    '${installed_helper}' --operation disable-debugger --root-mode auto --groups jailbreak-markers --live >/dev/null 2>&1 || true
     '${installed_helper}' --operation disable-symlinks --root-mode auto --groups jailbreak-markers --live >/dev/null 2>&1 || true
     '${installed_helper}' --operation disable-write-remove --root-mode auto --groups jailbreak-markers --live >/dev/null 2>&1 || true
     ;;
@@ -127,7 +140,7 @@ exit 0
 POSTRM
   chmod 0755 "${stage}/DEBIAN/postrm"
 
-  local output="${package_root}/com.securitylab.jailbreaklab_1.9.0_${scheme}.deb"
+  local output="${package_root}/com.securitylab.jailbreaklab_1.10.0_${scheme}.deb"
   dpkg-deb --root-owner-group --build "${stage}" "${output}"
   print "created ${output}"
 }

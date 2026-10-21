@@ -8,6 +8,7 @@ final class SimulationStoreTests: XCTestCase {
         XCTAssertFalse(store.isRunning)
         XCTAssertFalse(store.suspiciousFilesStatus.isEmpty)
         XCTAssertFalse(store.restrictedWriteStatus.isEmpty)
+        XCTAssertFalse(store.debuggerStateStatus.isEmpty)
         XCTAssertFalse(store.suspiciousObjCClassStatus.isEmpty)
         XCTAssertFalse(store.runtimeHookStatus.isEmpty)
         XCTAssertFalse(store.mshookStatus.isEmpty)
@@ -70,9 +71,23 @@ final class SimulationStoreTests: XCTestCase {
         store.selectApplication(target)
 
         XCTAssertEqual(store.selectedApplication, target)
+        XCTAssertEqual(store.debuggerStateStatus, "已关闭")
         XCTAssertEqual(store.suspiciousObjCClassStatus, "已关闭")
         XCTAssertEqual(store.runtimeHookStatus, "已关闭")
         XCTAssertEqual(store.mshookStatus, "已关闭")
+    }
+
+    func testLegacyDebuggerStateWithoutTargetIsResetForSelection() {
+        let suiteName = "SimulationStoreTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set(true, forKey: "DebuggerStateEnvironmentEnabled")
+
+        let store = SimulationStore(defaults: defaults, applicationLoader: { [] })
+
+        XCTAssertNil(store.selectedApplication)
+        XCTAssertFalse(store.isDebuggerStateEnabled)
+        XCTAssertEqual(store.debuggerStateStatus, "已关闭：请选择检测 App")
     }
 
     func testLegacyRuntimeHookStateWithoutTargetIsResetForSelection() {

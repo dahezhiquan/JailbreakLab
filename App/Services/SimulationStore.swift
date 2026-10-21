@@ -11,6 +11,8 @@ final class SimulationStore: ObservableObject {
     @Published private(set) var isAbnormalSymlinksEnabled: Bool
     @Published private(set) var abnormalSymlinksStatus: String
     @Published private(set) var abnormalSymlinksDetails: [String]
+    @Published private(set) var isDebuggerStateEnabled: Bool
+    @Published private(set) var debuggerStateStatus: String
     @Published private(set) var isSuspiciousObjCClassEnabled: Bool
     @Published private(set) var suspiciousObjCClassStatus: String
     @Published private(set) var isRuntimeHookEnabled: Bool
@@ -30,6 +32,7 @@ final class SimulationStore: ObservableObject {
     private static let suspiciousFilesKey = "SuspiciousFilesEnvironmentEnabled"
     private static let restrictedWriteKey = "RestrictedWriteEnvironmentEnabled"
     private static let abnormalSymlinksKey = "AbnormalSymlinksEnvironmentEnabled"
+    private static let debuggerStateKey = "DebuggerStateEnvironmentEnabled"
     private static let suspiciousObjCClassKey = "SuspiciousObjCClassEnvironmentEnabled"
     private static let runtimeHookKey = "RuntimeHookEnvironmentEnabled"
     private static let mshookKey = "MSHookEnvironmentEnabled"
@@ -48,6 +51,7 @@ final class SimulationStore: ObservableObject {
         let suspiciousFilesEnabled = defaults.bool(forKey: Self.suspiciousFilesKey)
         let restrictedWriteEnabled = defaults.bool(forKey: Self.restrictedWriteKey)
         let abnormalSymlinksEnabled = defaults.bool(forKey: Self.abnormalSymlinksKey)
+        var debuggerStateEnabled = defaults.bool(forKey: Self.debuggerStateKey)
         var suspiciousObjCClassEnabled = defaults.bool(
             forKey: Self.suspiciousObjCClassKey
         )
@@ -56,6 +60,10 @@ final class SimulationStore: ObservableObject {
         let storedApplication = defaults.data(forKey: Self.selectedApplicationKey)
             .flatMap { try? JSONDecoder().decode(InstalledApplication.self, from: $0) }
             .flatMap { $0.isValidInjectionTarget ? $0 : nil }
+        if debuggerStateEnabled && storedApplication == nil {
+            debuggerStateEnabled = false
+            defaults.set(false, forKey: Self.debuggerStateKey)
+        }
         if suspiciousObjCClassEnabled && storedApplication == nil {
             suspiciousObjCClassEnabled = false
             defaults.set(false, forKey: Self.suspiciousObjCClassKey)
@@ -82,6 +90,10 @@ final class SimulationStore: ObservableObject {
         abnormalSymlinksDetails = abnormalSymlinksEnabled
             ? ["上次已开启；重新切换开关可刷新逐项结果"]
             : []
+        isDebuggerStateEnabled = debuggerStateEnabled
+        debuggerStateStatus = debuggerStateEnabled
+            ? "已开启：重新打开\(storedApplication?.displayName ?? "目标 App")后生效"
+            : (storedApplication == nil ? "已关闭：请选择检测 App" : "已关闭")
         isSuspiciousObjCClassEnabled = suspiciousObjCClassEnabled
         selectedApplication = storedApplication
         suspiciousObjCClassStatus = suspiciousObjCClassEnabled
@@ -116,10 +128,12 @@ final class SimulationStore: ObservableObject {
     }
 
     func selectApplication(_ application: InstalledApplication) {
-        guard !isSuspiciousObjCClassEnabled, !isRuntimeHookEnabled, !isMSHookEnabled, !isRunning,
+        guard !isDebuggerStateEnabled, !isSuspiciousObjCClassEnabled,
+              !isRuntimeHookEnabled, !isMSHookEnabled, !isRunning,
               application.isValidInjectionTarget else { return }
         selectedApplication = application
         persistSelectedApplication(application)
+        debuggerStateStatus = "已关闭"
         suspiciousObjCClassStatus = "已关闭"
         runtimeHookStatus = "已关闭"
         mshookStatus = "已关闭"
@@ -353,6 +367,47 @@ final class SimulationStore: ObservableObject {
                 : "已关闭：请重新打开\(targetName)"
         } catch {
             suspiciousObjCClassStatus = isSuspiciousObjCClassEnabled
+                ? "已开启：状态未改变"
+                : "已关闭"
+            alertMessage = error.localizedDescription
+        }
+    }
+
+    func setDebuggerStateEnabled(_ enabled: Bool) async {
+        guard enabled != isDebuggerStateEnabled, !isRunning else { return }
+        if enabled && selectedApplication?.isValidInjectionTarget != true {
+            alertMessage = "请先选择检测 App。"
+            debuggerStateStatus = "已关闭：请选择检测 App"
+            return
+        }
+        isRunning = true
+        defer { isRunning = false }
+        debuggerStateStatus = enabled ? "正在构造被调试状态…" : "正在恢复调试状态…"
+
+        do {
+            let operationResults = try await helperClient.run(
+                operation: enabled ? "enable-debugger" : "disable-debugger",
+                rootLayout: .automatic,
+                strategies: Set(EnvironmentStrategy.allCases),
+                targetApplication: selectedApplication,
+                dryRun: false
+            )
+            results = operationResults
+            guard let result = operationResults.first else {
+                throw HelperClientError.invalidOutput
+            }
+            if isOperationFailure(result) {
+                throw HelperClientError.operationRejected(result.message)
+            }
+
+            isDebuggerStateEnabled = enabled
+            defaults.set(enabled, forKey: Self.debuggerStateKey)
+            let targetName = selectedApplication?.displayName ?? "目标 App"
+            debuggerStateStatus = enabled
+                ? "已开启：请重新打开\(targetName)"
+                : "已关闭：请重新打开\(targetName)"
+        } catch {
+            debuggerStateStatus = isDebuggerStateEnabled
                 ? "已开启：状态未改变"
                 : "已关闭"
             alertMessage = error.localizedDescription

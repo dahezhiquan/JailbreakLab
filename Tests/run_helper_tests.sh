@@ -9,6 +9,7 @@ filesystem_tests="${temporary_directory}/helper-filesystem-tests"
 runtime_hook_library="${temporary_directory}/JailbreakLabRuntimeHook.dylib"
 runtime_hook_tests="${temporary_directory}/runtime-hook-tests"
 mshook_tests="${temporary_directory}/mshook-tests"
+debugger_state_tests="${temporary_directory}/debugger-state-tests"
 
 clang -std=c11 -Wall -Wextra -Werror "${project_root}/Helper/main.c" -o "${binary}"
 clang -std=c11 -Wall -Wextra -Werror "${project_root}/Tests/helper_filesystem_tests.c" -o "${filesystem_tests}"
@@ -22,6 +23,10 @@ clang -std=c11 -Wall -Wextra -Werror -DJAILBREAKLAB_TESTING \
   "${project_root}/Injection/MSHookFunction.c" \
   "${project_root}/Tests/mshook_tests.c" -o "${mshook_tests}"
 "${mshook_tests}"
+clang -std=c11 -Wall -Wextra -Werror -DJAILBREAKLAB_TESTING \
+  "${project_root}/Injection/DebuggerState.c" \
+  "${project_root}/Tests/debugger_state_tests.c" -o "${debugger_state_tests}"
+"${debugger_state_tests}"
 
 if "${binary}" --operation invalid --root-mode auto --groups jailbreak-markers --dry-run >/dev/null 2>&1; then
   print -u2 "invalid operation was accepted"
@@ -78,6 +83,13 @@ print -r -- "${mshook_output}" | grep -q '"path":"getpid"'
 print -r -- "${mshook_output}" | grep -q '"effectivePath":"/Library/MobileSubstrate/DynamicLibraries/JailbreakLabMSHook.plist"'
 print -r -- "${mshook_output}" | grep -q '"status":"planned"'
 
+debugger_output=$("${binary}" --operation enable-debugger --root-mode rootful --groups jailbreak-markers \
+  --target-bundle-id com.example.detector --target-bundle-name Detector.app \
+  --target-executable Detector --dry-run)
+print -r -- "${debugger_output}" | grep -q '"path":"sysctl.P_TRACED"'
+print -r -- "${debugger_output}" | grep -q '"effectivePath":"/Library/MobileSubstrate/DynamicLibraries/JailbreakLabDebugger.plist"'
+print -r -- "${debugger_output}" | grep -q '"status":"planned"'
+
 if "${binary}" --operation enable-objc-class --root-mode rootful --groups jailbreak-markers \
   --target-bundle-id 'invalid<&' --target-bundle-name Detector.app \
   --target-executable Detector --dry-run >/dev/null 2>&1; then
@@ -99,6 +111,13 @@ if "${binary}" --operation enable-mshook --root-mode rootful --groups jailbreak-
   exit 1
 fi
 
+if "${binary}" --operation enable-debugger --root-mode rootful --groups jailbreak-markers \
+  --target-bundle-id 'invalid<&' --target-bundle-name Detector.app \
+  --target-executable Detector --dry-run >/dev/null 2>&1; then
+  print -u2 "invalid debugger-state injection target was accepted"
+  exit 1
+fi
+
 if "${binary}" --operation apply --root-mode rootful --groups jailbreak-markers --live >/dev/null 2>&1; then
   print -u2 "unauthorized live operation was accepted"
   exit 1
@@ -115,6 +134,13 @@ if [[ ${EUID} -ne 0 ]] && "${binary}" --operation enable-mshook --root-mode root
   --target-bundle-id com.example.detector --target-bundle-name Detector.app \
   --target-executable Detector --live >/dev/null 2>&1; then
   print -u2 "unauthorized MSHookFunction operation was accepted"
+  exit 1
+fi
+
+if [[ ${EUID} -ne 0 ]] && "${binary}" --operation enable-debugger --root-mode rootful --groups jailbreak-markers \
+  --target-bundle-id com.example.detector --target-bundle-name Detector.app \
+  --target-executable Detector --live >/dev/null 2>&1; then
+  print -u2 "unauthorized debugger-state operation was accepted"
   exit 1
 fi
 

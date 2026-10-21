@@ -7,44 +7,6 @@ struct DashboardView: View {
         NavigationStack {
             Form {
                 Section {
-                    strategyRows(
-                        title: "可疑文件是否存在",
-                        detail: "写入越狱特征路径",
-                        isOn: store.isSuspiciousFilesEnabled,
-                        status: store.suspiciousFilesStatus,
-                        symbol: "doc.badge.plus"
-                    ) { enabled in
-                        await store.setSuspiciousFilesEnabled(enabled)
-                    }
-                }
-
-                Section {
-                    strategyRows(
-                        title: "受限目录是否可写",
-                        detail: "尝试使 /root/、/private/、/jb/ 可写",
-                        isOn: store.isRestrictedWriteEnabled,
-                        status: store.restrictedWriteStatus,
-                        details: store.restrictedWriteDetails,
-                        symbol: "folder.badge.gearshape"
-                    ) { enabled in
-                        await store.setRestrictedWriteEnabled(enabled)
-                    }
-                }
-
-                Section {
-                    strategyRows(
-                        title: "异常符号链接",
-                        detail: "构造 7 个关键目录符号链接",
-                        isOn: store.isAbnormalSymlinksEnabled,
-                        status: store.abnormalSymlinksStatus,
-                        details: store.abnormalSymlinksDetails,
-                        symbol: "link.badge.plus"
-                    ) { enabled in
-                        await store.setAbnormalSymlinksEnabled(enabled)
-                    }
-                }
-
-                Section {
                     NavigationLink {
                         ApplicationSelectionView()
                     } label: {
@@ -63,15 +25,73 @@ struct DashboardView: View {
                         }
                     }
                     .disabled(
-                        store.isRunning || store.isSuspiciousObjCClassEnabled ||
-                            store.isRuntimeHookEnabled || store.isMSHookEnabled
+                        store.isRunning || store.isDebuggerStateEnabled ||
+                            store.isSuspiciousObjCClassEnabled || store.isRuntimeHookEnabled ||
+                            store.isMSHookEnabled
                     )
+                } header: {
+                    Text("检测目标")
+                }
 
+                Section {
                     strategyRows(
-                        title: "可疑 Objective-C 类是否存在",
+                        title: "HJ01 可疑文件是否存在",
+                        detail: "写入越狱特征路径",
+                        isOn: store.isSuspiciousFilesEnabled,
+                        status: store.suspiciousFilesStatus,
+                        symbol: "doc.badge.plus"
+                    ) { enabled in
+                        await store.setSuspiciousFilesEnabled(enabled)
+                    }
+                }
+
+                Section {
+                    strategyRows(
+                        title: "HJ02 受限目录是否可写",
+                        detail: "尝试使 /root/、/private/、/jb/ 可写",
+                        isOn: store.isRestrictedWriteEnabled,
+                        status: store.restrictedWriteStatus,
+                        details: store.restrictedWriteDetails,
+                        symbol: "folder.badge.gearshape"
+                    ) { enabled in
+                        await store.setRestrictedWriteEnabled(enabled)
+                    }
+                }
+
+                Section {
+                    strategyRows(
+                        title: "HJ03 被调试状态",
                         detail: store.selectedApplication.map {
-                            "为\($0.displayName)注册 ShadowRuleset"
-                        } ?? "选择目标后注册 ShadowRuleset",
+                            "让\($0.displayName) 的 sysctl 查询返回 P_TRACED"
+                        } ?? "选择目标后构造 P_TRACED 状态",
+                        isOn: store.isDebuggerStateEnabled,
+                        status: store.debuggerStateStatus,
+                        symbol: "ladybug.fill",
+                        isDisabled: store.selectedApplication == nil
+                    ) { enabled in
+                        await store.setDebuggerStateEnabled(enabled)
+                    }
+                }
+
+                Section {
+                    strategyRows(
+                        title: "HJ04 异常符号链接",
+                        detail: "构造 7 个关键目录符号链接",
+                        isOn: store.isAbnormalSymlinksEnabled,
+                        status: store.abnormalSymlinksStatus,
+                        details: store.abnormalSymlinksDetails,
+                        symbol: "link.badge.plus"
+                    ) { enabled in
+                        await store.setAbnormalSymlinksEnabled(enabled)
+                    }
+                }
+
+                Section {
+                    strategyRows(
+                        title: "HJ05 / HJ06 已加载镜像与工具特征",
+                        detail: store.selectedApplication.map {
+                            "向\($0.displayName)注入 Shadow 镜像并注册 ShadowRuleset"
+                        } ?? "选择目标后构造 Shadow 镜像和类指纹",
                         isOn: store.isSuspiciousObjCClassEnabled,
                         status: store.suspiciousObjCClassStatus,
                         symbol: "curlybraces.square",
@@ -81,7 +101,7 @@ struct DashboardView: View {
                     }
 
                     strategyRows(
-                        title: "Runtime Hook 检测",
+                        title: "IOS_INJ_01 Runtime Hook 检测",
                         detail: store.selectedApplication.map {
                             "替换 \($0.displayName) 中 -[NSProcessInfo processName] 的 IMP"
                         } ?? "选择目标后替换 -[NSProcessInfo processName] 的 IMP",
@@ -94,7 +114,7 @@ struct DashboardView: View {
                     }
 
                     strategyRows(
-                        title: "MSHookFunction 检测",
+                        title: "IOS_INJ_02 MSHookFunction 检测",
                         detail: store.selectedApplication.map {
                             "在\($0.displayName) 中 inline hook getpid"
                         } ?? "选择目标后 inline hook getpid",

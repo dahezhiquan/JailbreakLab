@@ -7,6 +7,7 @@ HELPER := $(BUILD_DIR)/jailbreaklab-helper
 INJECTION := $(BUILD_DIR)/JailbreakLabShadow.dylib
 RUNTIME_HOOK_INJECTION := $(BUILD_DIR)/JailbreakLabRuntimeHook.dylib
 MSHOOK_INJECTION := $(BUILD_DIR)/JailbreakLabMSHook.dylib
+DEBUGGER_INJECTION := $(BUILD_DIR)/JailbreakLabDebugger.dylib
 
 .PHONY: project app helper injection package clean test-helper
 
@@ -28,15 +29,17 @@ injection:
 	$$(xcrun --sdk iphoneos --find clang) -arch arm64 -isysroot $$(xcrun --sdk iphoneos --show-sdk-path) -miphoneos-version-min=16.0 -Os -Wall -Wextra -Werror -dynamiclib -fvisibility=hidden -Wl,-install_name,@rpath/JailbreakLabShadow.dylib -lobjc Injection/ShadowRuntime.m -o $(INJECTION)
 	$$(xcrun --sdk iphoneos --find clang) -arch arm64 -isysroot $$(xcrun --sdk iphoneos --show-sdk-path) -miphoneos-version-min=16.0 -Os -Wall -Wextra -Werror -dynamiclib -fvisibility=hidden -Wl,-install_name,@rpath/JailbreakLabRuntimeHook.dylib -lobjc Injection/RuntimeHook.m -o $(RUNTIME_HOOK_INJECTION)
 	$$(xcrun --sdk iphoneos --find clang) -arch arm64 -isysroot $$(xcrun --sdk iphoneos --show-sdk-path) -miphoneos-version-min=16.0 -Os -Wall -Wextra -Werror -dynamiclib -fvisibility=hidden -Wl,-install_name,@rpath/JailbreakLabMSHook.dylib Injection/MSHookFunction.c -o $(MSHOOK_INJECTION)
+	$$(xcrun --sdk iphoneos --find clang) -arch arm64 -isysroot $$(xcrun --sdk iphoneos --show-sdk-path) -miphoneos-version-min=16.0 -Os -Wall -Wextra -Werror -dynamiclib -fvisibility=hidden -Wl,-install_name,@rpath/JailbreakLabDebugger.dylib Injection/DebuggerState.c -o $(DEBUGGER_INJECTION)
 
 package: app helper injection
-	./Packaging/package.sh $(APP) $(HELPER) $(INJECTION) $(RUNTIME_HOOK_INJECTION) $(MSHOOK_INJECTION)
+	./Packaging/package.sh $(APP) $(HELPER) $(INJECTION) $(RUNTIME_HOOK_INJECTION) $(MSHOOK_INJECTION) $(DEBUGGER_INJECTION)
 
 test-helper:
 	./Tests/run_helper_tests.sh
 	clang -fsyntax-only -Wall -Wextra -Werror Injection/ShadowRuntime.m
 	clang -fsyntax-only -Wall -Wextra -Werror Injection/RuntimeHook.m
 	clang -fsyntax-only -Wall -Wextra -Werror Injection/MSHookFunction.c
+	clang -fsyntax-only -Wall -Wextra -Werror Injection/DebuggerState.c
 
 clean:
 	rm -rf $(BUILD_DIR) $(PROJECT) Packages
