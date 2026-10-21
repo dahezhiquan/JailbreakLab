@@ -55,7 +55,7 @@ build_package() {
   cat > "${stage}/DEBIAN/control" <<CONTROL
 Package: com.securitylab.jailbreaklab.${scheme}
 Name: Jailbreak Lab (${scheme})
-Version: 1.6.0
+Version: 1.7.0
 Architecture: ${architecture}
 Depends: mobilesubstrate
 Description: Controlled jailbreak artifact simulator for owned security test devices.
@@ -71,7 +71,7 @@ CONTROL
 set -e
 chown root:wheel '${installed_helper}'
 chmod 4755 '${installed_helper}'
-if [ -f /private/var/db/jailbreaklab/shadow-class-enabled-v1 ]; then
+if [ -f /private/var/db/jailbreaklab/shadow-target-state-v2 ]; then
   '${installed_helper}' --operation enable-objc-class --root-mode auto --groups jailbreak-markers --live >/dev/null 2>&1 || true
 else
   '${installed_helper}' --operation disable-objc-class --root-mode auto --groups jailbreak-markers --live >/dev/null 2>&1 || true
@@ -101,7 +101,7 @@ exit 0
 POSTRM
   chmod 0755 "${stage}/DEBIAN/postrm"
 
-  local output="${package_root}/com.securitylab.jailbreaklab_1.6.0_${scheme}.deb"
+  local output="${package_root}/com.securitylab.jailbreaklab_1.7.0_${scheme}.deb"
   dpkg-deb --root-owner-group --build "${stage}" "${output}"
   print "created ${output}"
 }

@@ -46,9 +46,18 @@ print -r -- "${symlink_output}" | grep -q '"path":"/Applications"'
 print -r -- "${symlink_output}" | grep -q '"path":"/var/lib/undecimus/apt"'
 [[ $(print -r -- "${symlink_output}" | grep -c '^{') -eq 7 ]]
 
-objc_output=$("${binary}" --operation enable-objc-class --root-mode rootful --groups jailbreak-markers --dry-run)
+objc_output=$("${binary}" --operation enable-objc-class --root-mode rootful --groups jailbreak-markers \
+  --target-bundle-id com.example.detector --target-bundle-name Detector.app \
+  --target-executable Detector --dry-run)
 print -r -- "${objc_output}" | grep -q '"path":"ShadowRuleset"'
 print -r -- "${objc_output}" | grep -q '"status":"planned"'
+
+if "${binary}" --operation enable-objc-class --root-mode rootful --groups jailbreak-markers \
+  --target-bundle-id 'invalid<&' --target-bundle-name Detector.app \
+  --target-executable Detector --dry-run >/dev/null 2>&1; then
+  print -u2 "invalid Objective-C injection target was accepted"
+  exit 1
+fi
 
 if "${binary}" --operation apply --root-mode rootful --groups jailbreak-markers --live >/dev/null 2>&1; then
   print -u2 "unauthorized live operation was accepted"
@@ -70,7 +79,9 @@ if "${binary}" --operation enable-symlinks --root-mode rootful --groups jailbrea
   exit 1
 fi
 
-if [[ ${EUID} -ne 0 ]] && "${binary}" --operation enable-objc-class --root-mode rootful --groups jailbreak-markers --live >/dev/null 2>&1; then
+if [[ ${EUID} -ne 0 ]] && "${binary}" --operation enable-objc-class --root-mode rootful --groups jailbreak-markers \
+  --target-bundle-id com.example.detector --target-bundle-name Detector.app \
+  --target-executable Detector --live >/dev/null 2>&1; then
   print -u2 "unauthorized Objective-C class operation was accepted"
   exit 1
 fi

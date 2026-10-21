@@ -5,7 +5,7 @@ Jailbreak Lab 是一个用于自有越狱测试设备的 iOS 环境模拟工具�
 - 可疑文件是否存在：写入或清理白名单中的 73 个越狱特征路径。
 - 受限目录是否可写：检查根文件系统是否只读，再将 `/root/`、`/private/`、`/jb/` 逐项尝试设为 `01777`，并以调用 App 的真实 UID 执行临时文件写入与删除测试。
 - 异常符号链接：将 7 个固定关键目录的原内容移到同级工具专用备份，再在原路径创建指向备份的符号链接。
-- 可疑 Objective-C 类是否存在：通过最小注入 dylib 在度小满活体（`com.dxmpay.payDemo`）启动时按开关状态注册 `ShadowRuleset` 及 `internalDictionary` 方法。
+- 可疑 Objective-C 类是否存在：从设备上的第三方 App 中选择一个检测目标，通过最小注入 dylib 在目标启动时按开关状态注册 `ShadowRuleset` 及 `internalDictionary` 方法。
 
 ## 安全边界
 
@@ -22,8 +22,8 @@ Jailbreak Lab 是一个用于自有越狱测试设备的 iOS 环境模拟工具�
 - 符号链接策略会暂时改变 `/Applications`、`/Library/Ringtones`、`/Library/Wallpaper`、`/usr/include`、`/usr/libexec`、`/usr/share`、`/var/lib/undecimus/apt` 的目录项类型。rootless 下非 `/var` 路径映射到 bootstrap。
 - 关闭开关或卸载时会验证符号链接目标、设备号和 inode 后恢复；若身份不匹配则拒绝修改。
 - 安装包依赖 `mobilesubstrate`；Dopamine 会通过该依赖安装 ElleKit。首次安装注入引擎后，按包管理器提示重启用户空间。
-- Objective-C 类开关创建或删除只匹配度小满活体的工具过滤配置，并结束路径精确匹配的目标进程；重新打开该 App 后生效。已运行进程中的类无法动态移除。
-- 注入 dylib 只过滤到 `com.dxmpay.payDemo`；关闭时不会注册模拟类。仅应在自有测试设备上安装。
+- Objective-C 类开关只为当前选择的 Bundle ID 创建过滤配置，并结束 `.app` 目录名和可执行名均精确匹配的目标进程；重新打开该 App 后生效。已运行进程中的类无法动态移除。
+- App 选择器只列出 `/var/containers/Bundle/Application` 下的第三方 App，并排除 Jailbreak Lab 自身。目标参数经过字符、长度和路径分隔符校验；关闭时不会注册模拟类。
 
 ## GitHub Actions 构建
 
@@ -33,12 +33,12 @@ Jailbreak Lab 是一个用于自有越狱测试设备的 iOS 环境模拟工具�
 4. 构建成功后，在该次运行页面底部下载 `JailbreakLab-debs-*`。
 5. 解压后根据越狱类型只安装一个包：
 
-   - `com.securitylab.jailbreaklab_1.6.0_rootless.deb`
-   - `com.securitylab.jailbreaklab_1.6.0_rootful.deb`
+   - `com.securitylab.jailbreaklab_1.7.0_rootless.deb`
+   - `com.securitylab.jailbreaklab_1.7.0_rootful.deb`
 
 ## 使用
 
 1. 通过 Sileo、Zebra 或 Filza 安装对应的 deb。
 2. 打开 **Jailbreak Lab**。
-3. 打开需要的环境开关，然后运行待验证 App 的检测。
+3. 在 Objective-C 类策略中选择检测 App，再打开需要的环境开关并运行检测。
 4. 测试完成后关闭开关，清理本工具创建的对象并恢复权限。

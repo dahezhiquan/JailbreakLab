@@ -31,10 +31,14 @@ char *JBRunHelper(
     const char *operation,
     const char *root_mode,
     const char *groups,
+    const char *target_bundle_id,
+    const char *target_bundle_name,
+    const char *target_executable,
     bool dry_run,
     int *exit_code
 ) {
-    if (exit_code == NULL || operation == NULL || root_mode == NULL || groups == NULL) {
+    if (exit_code == NULL || operation == NULL || root_mode == NULL || groups == NULL ||
+        target_bundle_id == NULL || target_bundle_name == NULL || target_executable == NULL) {
         return NULL;
     }
 
@@ -57,14 +61,25 @@ char *JBRunHelper(
     posix_spawn_file_actions_addclose(&actions, output_pipe[0]);
     posix_spawn_file_actions_addclose(&actions, output_pipe[1]);
 
-    char *arguments[] = {
-        (char *)helper,
-        "--operation", (char *)operation,
-        "--root-mode", (char *)root_mode,
-        "--groups", (char *)groups,
-        dry_run ? "--dry-run" : "--live",
-        NULL
-    };
+    char *arguments[16] = {0};
+    size_t argument_index = 0;
+    arguments[argument_index++] = (char *)helper;
+    arguments[argument_index++] = "--operation";
+    arguments[argument_index++] = (char *)operation;
+    arguments[argument_index++] = "--root-mode";
+    arguments[argument_index++] = (char *)root_mode;
+    arguments[argument_index++] = "--groups";
+    arguments[argument_index++] = (char *)groups;
+    if (target_bundle_id[0] != '\0') {
+        arguments[argument_index++] = "--target-bundle-id";
+        arguments[argument_index++] = (char *)target_bundle_id;
+        arguments[argument_index++] = "--target-bundle-name";
+        arguments[argument_index++] = (char *)target_bundle_name;
+        arguments[argument_index++] = "--target-executable";
+        arguments[argument_index++] = (char *)target_executable;
+    }
+    arguments[argument_index++] = dry_run ? "--dry-run" : "--live";
+    arguments[argument_index] = NULL;
     char *sanitized_environment[] = {
         "PATH=/usr/bin:/bin",
         "LANG=C",

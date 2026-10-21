@@ -99,27 +99,66 @@ int main(void) {
 
     char shadow_filter_path[MAX_PATH_LENGTH];
     snprintf(shadow_filter_path, sizeof(shadow_filter_path), "%s/shadow-filter.plist", root);
+    shadow_target_state_t shadow_target;
+    initialize_shadow_target(
+        &shadow_target, "com.example.detector", "Detector.app", "Detector"
+    );
+    assert(shadow_target_is_valid(&shadow_target));
+    assert(!valid_shadow_target("invalid<&", "Detector.app", "Detector"));
+    assert(!valid_shadow_target("com.example.detector", "../Detector.app", "Detector"));
+    char shadow_filter_contents[SHADOW_FILTER_CAPACITY];
+    assert(build_shadow_filter_contents(
+        &shadow_target, shadow_filter_contents, sizeof(shadow_filter_contents)
+    ));
+    assert(strstr(shadow_filter_contents, "com.example.detector") != NULL);
     bool filter_changed = false;
     assert(update_shadow_filter(
-        shadow_filter_path, true, &filter_changed, message, sizeof(message)
+        shadow_filter_path, NULL, &shadow_target, true,
+        &filter_changed, message, sizeof(message)
     ));
     assert(filter_changed);
     assert(update_shadow_filter(
-        shadow_filter_path, true, &filter_changed, message, sizeof(message)
+        shadow_filter_path, &shadow_target, &shadow_target, true,
+        &filter_changed, message, sizeof(message)
     ));
     assert(!filter_changed);
+    shadow_target_state_t alternate_shadow_target;
+    initialize_shadow_target(
+        &alternate_shadow_target,
+        "com.example.alternate",
+        "Alternate Detector.app",
+        "Alternate Detector"
+    );
+    char alternate_filter_contents[SHADOW_FILTER_CAPACITY];
+    assert(build_shadow_filter_contents(
+        &alternate_shadow_target,
+        alternate_filter_contents,
+        sizeof(alternate_filter_contents)
+    ));
+    assert(update_shadow_filter(
+        shadow_filter_path, &shadow_target, &alternate_shadow_target, true,
+        &filter_changed, message, sizeof(message)
+    ));
+    assert(filter_changed);
+    assert(update_shadow_filter(
+        shadow_filter_path, &alternate_shadow_target, &shadow_target, true,
+        &filter_changed, message, sizeof(message)
+    ));
+    assert(filter_changed);
     int shadow_filter = open(
         shadow_filter_path, O_RDONLY | O_NOFOLLOW | O_CLOEXEC
     );
     assert(shadow_filter >= 0);
-    assert(fd_has_exact_signature(shadow_filter, kShadowFilterContents));
+    assert(fd_has_exact_signature(shadow_filter, shadow_filter_contents));
     close(shadow_filter);
     assert(update_shadow_filter(
-        shadow_filter_path, false, &filter_changed, message, sizeof(message)
+        shadow_filter_path, &shadow_target, &shadow_target, false,
+        &filter_changed, message, sizeof(message)
     ));
     assert(filter_changed);
     assert(update_shadow_filter(
-        shadow_filter_path, false, &filter_changed, message, sizeof(message)
+        shadow_filter_path, &shadow_target, &shadow_target, false,
+        &filter_changed, message, sizeof(message)
     ));
     assert(!filter_changed);
 
@@ -134,17 +173,19 @@ int main(void) {
     ));
     close(shadow_filter);
     assert(update_shadow_filter(
-        shadow_filter_path, true, &filter_changed, message, sizeof(message)
+        shadow_filter_path, NULL, &shadow_target, true,
+        &filter_changed, message, sizeof(message)
     ));
     assert(filter_changed);
     shadow_filter = open(
         shadow_filter_path, O_RDONLY | O_NOFOLLOW | O_CLOEXEC
     );
     assert(shadow_filter >= 0);
-    assert(fd_has_exact_signature(shadow_filter, kShadowFilterContents));
+    assert(fd_has_exact_signature(shadow_filter, shadow_filter_contents));
     close(shadow_filter);
     assert(update_shadow_filter(
-        shadow_filter_path, false, &filter_changed, message, sizeof(message)
+        shadow_filter_path, &shadow_target, &shadow_target, false,
+        &filter_changed, message, sizeof(message)
     ));
     assert(filter_changed);
 
@@ -155,10 +196,28 @@ int main(void) {
     assert(write_all(shadow_filter, "external", 8));
     close(shadow_filter);
     assert(!update_shadow_filter(
-        shadow_filter_path, true, &filter_changed, message, sizeof(message)
+        shadow_filter_path, NULL, &shadow_target, true,
+        &filter_changed, message, sizeof(message)
     ));
     assert(errno == EPERM);
     assert(unlink(shadow_filter_path) == 0);
+
+    char shadow_state_path[MAX_PATH_LENGTH];
+    snprintf(shadow_state_path, sizeof(shadow_state_path), "%s/shadow-state", root);
+    int shadow_state = open(
+        shadow_state_path, O_RDWR | O_CREAT | O_EXCL | O_CLOEXEC, 0600
+    );
+    assert(shadow_state >= 0);
+    assert(write_all(
+        shadow_state, (const char *)&shadow_target, sizeof(shadow_target)
+    ));
+    shadow_target_state_t loaded_shadow_target;
+    assert(read_shadow_target_descriptor(shadow_state, &loaded_shadow_target));
+    assert(strcmp(
+        loaded_shadow_target.bundle_identifier, shadow_target.bundle_identifier
+    ) == 0);
+    close(shadow_state);
+    assert(unlink(shadow_state_path) == 0);
 
     assert(unlink(linked_directory) == 0);
     assert(rmdir(real_directory) == 0);

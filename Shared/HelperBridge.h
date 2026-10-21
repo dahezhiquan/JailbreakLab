@@ -7,6 +7,9 @@ char *JBRunHelper(
     const char *operation,
     const char *root_mode,
     const char *groups,
+    const char *target_bundle_id,
+    const char *target_bundle_name,
+    const char *target_executable,
     bool dry_run,
     int *exit_code
 );

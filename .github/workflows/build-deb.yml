@@ -52,14 +52,14 @@ jobs:
       - name: Verify packages
         run: |
           set -euo pipefail
-          test -f Packages/com.securitylab.jailbreaklab_1.6.0_rootless.deb
-          test -f Packages/com.securitylab.jailbreaklab_1.6.0_rootful.deb
-          dpkg-deb --info Packages/com.securitylab.jailbreaklab_1.6.0_rootless.deb | tee rootless-info.txt
-          dpkg-deb --info Packages/com.securitylab.jailbreaklab_1.6.0_rootful.deb | tee rootful-info.txt
+          test -f Packages/com.securitylab.jailbreaklab_1.7.0_rootless.deb
+          test -f Packages/com.securitylab.jailbreaklab_1.7.0_rootful.deb
+          dpkg-deb --info Packages/com.securitylab.jailbreaklab_1.7.0_rootless.deb | tee rootless-info.txt
+          dpkg-deb --info Packages/com.securitylab.jailbreaklab_1.7.0_rootful.deb | tee rootful-info.txt
           grep -Fq 'Depends: mobilesubstrate' rootless-info.txt
           grep -Fq 'Depends: mobilesubstrate' rootful-info.txt
-          dpkg-deb --contents Packages/com.securitylab.jailbreaklab_1.6.0_rootless.deb > rootless-contents.txt
-          dpkg-deb --contents Packages/com.securitylab.jailbreaklab_1.6.0_rootful.deb > rootful-contents.txt
+          dpkg-deb --contents Packages/com.securitylab.jailbreaklab_1.7.0_rootless.deb > rootless-contents.txt
+          dpkg-deb --contents Packages/com.securitylab.jailbreaklab_1.7.0_rootful.deb > rootful-contents.txt
           grep -Fq './var/jb/Library/MobileSubstrate/DynamicLibraries/JailbreakLabShadow.dylib' rootless-contents.txt
           grep -Fq './Library/MobileSubstrate/DynamicLibraries/JailbreakLabShadow.dylib' rootful-contents.txt
           (cd Packages && shasum -a 256 *.deb > SHA256SUMS)

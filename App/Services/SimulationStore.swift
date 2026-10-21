@@ -13,24 +13,45 @@ final class SimulationStore: ObservableObject {
     @Published private(set) var abnormalSymlinksDetails: [String]
     @Published private(set) var isSuspiciousObjCClassEnabled: Bool
     @Published private(set) var suspiciousObjCClassStatus: String
+    @Published private(set) var installedApplications: [InstalledApplication] = []
+    @Published private(set) var selectedApplication: InstalledApplication?
+    @Published private(set) var isLoadingApplications = false
     @Published private(set) var results: [ArtifactResult] = []
     @Published private(set) var isRunning = false
     @Published var alertMessage: String?
 
-    private let helperClient = HelperClient()
-    private let defaults = UserDefaults.standard
+    private let helperClient: HelperClient
+    private let defaults: UserDefaults
+    private let applicationLoader: @Sendable () -> [InstalledApplication]
     private static let suspiciousFilesKey = "SuspiciousFilesEnvironmentEnabled"
     private static let restrictedWriteKey = "RestrictedWriteEnvironmentEnabled"
     private static let abnormalSymlinksKey = "AbnormalSymlinksEnvironmentEnabled"
     private static let suspiciousObjCClassKey = "SuspiciousObjCClassEnvironmentEnabled"
+    private static let selectedApplicationKey = "SuspiciousObjCClassTargetApplication"
 
-    init() {
-        let suspiciousFilesEnabled = UserDefaults.standard.bool(forKey: Self.suspiciousFilesKey)
-        let restrictedWriteEnabled = UserDefaults.standard.bool(forKey: Self.restrictedWriteKey)
-        let abnormalSymlinksEnabled = UserDefaults.standard.bool(forKey: Self.abnormalSymlinksKey)
-        let suspiciousObjCClassEnabled = UserDefaults.standard.bool(
+    init(
+        defaults: UserDefaults = .standard,
+        helperClient: HelperClient = HelperClient(),
+        applicationLoader: @escaping @Sendable () -> [InstalledApplication] = {
+            InstalledApplicationCatalog.load()
+        }
+    ) {
+        self.defaults = defaults
+        self.helperClient = helperClient
+        self.applicationLoader = applicationLoader
+        let suspiciousFilesEnabled = defaults.bool(forKey: Self.suspiciousFilesKey)
+        let restrictedWriteEnabled = defaults.bool(forKey: Self.restrictedWriteKey)
+        let abnormalSymlinksEnabled = defaults.bool(forKey: Self.abnormalSymlinksKey)
+        var suspiciousObjCClassEnabled = defaults.bool(
             forKey: Self.suspiciousObjCClassKey
         )
+        let storedApplication = defaults.data(forKey: Self.selectedApplicationKey)
+            .flatMap { try? JSONDecoder().decode(InstalledApplication.self, from: $0) }
+            .flatMap { $0.isValidInjectionTarget ? $0 : nil }
+        if suspiciousObjCClassEnabled && storedApplication == nil {
+            suspiciousObjCClassEnabled = false
+            defaults.set(false, forKey: Self.suspiciousObjCClassKey)
+        }
         isSuspiciousFilesEnabled = suspiciousFilesEnabled
         suspiciousFilesStatus = suspiciousFilesEnabled ? "已开启" : "已关闭"
         isRestrictedWriteEnabled = restrictedWriteEnabled
@@ -46,9 +67,36 @@ final class SimulationStore: ObservableObject {
             ? ["上次已开启；重新切换开关可刷新逐项结果"]
             : []
         isSuspiciousObjCClassEnabled = suspiciousObjCClassEnabled
+        selectedApplication = storedApplication
         suspiciousObjCClassStatus = suspiciousObjCClassEnabled
-            ? "已开启：重新打开度小满活体后生效"
-            : "已关闭"
+            ? "已开启：重新打开\(storedApplication?.displayName ?? "目标 App")后生效"
+            : (storedApplication == nil ? "已关闭：请选择检测 App" : "已关闭")
+    }
+
+    func refreshInstalledApplications() async {
+        guard !isLoadingApplications else { return }
+        isLoadingApplications = true
+        let loader = applicationLoader
+        let applications = await Task.detached(priority: .userInitiated) {
+            loader()
+        }.value
+        installedApplications = applications
+        if let selectedApplication,
+           let refreshed = applications.first(where: {
+               $0.bundleIdentifier == selectedApplication.bundleIdentifier
+           }) {
+            self.selectedApplication = refreshed
+            persistSelectedApplication(refreshed)
+        }
+        isLoadingApplications = false
+    }
+
+    func selectApplication(_ application: InstalledApplication) {
+        guard !isSuspiciousObjCClassEnabled, !isRunning,
+              application.isValidInjectionTarget else { return }
+        selectedApplication = application
+        persistSelectedApplication(application)
+        suspiciousObjCClassStatus = "已关闭"
     }
 
     func setSuspiciousFilesEnabled(_ enabled: Bool) async {
@@ -245,6 +293,11 @@ final class SimulationStore: ObservableObject {
 
     func setSuspiciousObjCClassEnabled(_ enabled: Bool) async {
         guard enabled != isSuspiciousObjCClassEnabled, !isRunning else { return }
+        if enabled && selectedApplication?.isValidInjectionTarget != true {
+            alertMessage = "请先选择检测 App。"
+            suspiciousObjCClassStatus = "已关闭：请选择检测 App"
+            return
+        }
         isRunning = true
         defer { isRunning = false }
         suspiciousObjCClassStatus = enabled ? "正在启用运行时类…" : "正在停用运行时类…"
@@ -254,6 +307,7 @@ final class SimulationStore: ObservableObject {
                 operation: enabled ? "enable-objc-class" : "disable-objc-class",
                 rootLayout: .automatic,
                 strategies: Set(EnvironmentStrategy.allCases),
+                targetApplication: selectedApplication,
                 dryRun: false
             )
             results = operationResults
@@ -267,15 +321,21 @@ final class SimulationStore: ObservableObject {
 
             isSuspiciousObjCClassEnabled = enabled
             defaults.set(enabled, forKey: Self.suspiciousObjCClassKey)
+            let targetName = selectedApplication?.displayName ?? "目标 App"
             suspiciousObjCClassStatus = enabled
-                ? "已开启：请重新打开度小满活体"
-                : "已关闭：请重新打开度小满活体"
+                ? "已开启：请重新打开\(targetName)"
+                : "已关闭：请重新打开\(targetName)"
         } catch {
             suspiciousObjCClassStatus = isSuspiciousObjCClassEnabled
                 ? "已开启：状态未改变"
                 : "已关闭"
             alertMessage = error.localizedDescription
         }
+    }
+
+    private func persistSelectedApplication(_ application: InstalledApplication) {
+        guard let data = try? JSONEncoder().encode(application) else { return }
+        defaults.set(data, forKey: Self.selectedApplicationKey)
     }
 
     private func runRestrictedWrite(operation: String) async throws -> [ArtifactResult] {

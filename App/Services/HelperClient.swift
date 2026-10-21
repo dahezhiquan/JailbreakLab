@@ -26,6 +26,7 @@ struct HelperClient: Sendable {
         operation: String,
         rootLayout: RootLayout,
         strategies: Set<EnvironmentStrategy>,
+        targetApplication: InstalledApplication? = nil,
         dryRun: Bool
     ) async throws -> [ArtifactResult] {
         try await Task.detached(priority: .userInitiated) {
@@ -33,18 +34,30 @@ struct HelperClient: Sendable {
                 .map(\.rawValue)
                 .sorted()
                 .joined(separator: ",")
+            let bundleIdentifier = targetApplication?.bundleIdentifier ?? ""
+            let bundleName = targetApplication?.bundleName ?? ""
+            let executableName = targetApplication?.executableName ?? ""
 
             var exitCode: Int32 = 0
             let pointer = operation.withCString { operationPointer in
                 rootLayout.rawValue.withCString { rootPointer in
                     groups.withCString { groupsPointer in
-                        JBRunHelper(
-                            operationPointer,
-                            rootPointer,
-                            groupsPointer,
-                            dryRun,
-                            &exitCode
-                        )
+                        bundleIdentifier.withCString { bundleIdentifierPointer in
+                            bundleName.withCString { bundleNamePointer in
+                                executableName.withCString { executableNamePointer in
+                                    JBRunHelper(
+                                        operationPointer,
+                                        rootPointer,
+                                        groupsPointer,
+                                        bundleIdentifierPointer,
+                                        bundleNamePointer,
+                                        executableNamePointer,
+                                        dryRun,
+                                        &exitCode
+                                    )
+                                }
+                            }
+                        }
                     }
                 }
             }

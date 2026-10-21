@@ -26,6 +26,9 @@
 #define ARRAY_COUNT(value) (sizeof(value) / sizeof((value)[0]))
 #define MAX_PATH_LENGTH 1024
 #define PROCESS_PATH_BUFFER_SIZE 4096
+#define SHADOW_BUNDLE_ID_CAPACITY 256
+#define SHADOW_COMPONENT_CAPACITY 256
+#define SHADOW_FILTER_CAPACITY 2048
 
 static const char *kFileSignature = "JAILBREAKLAB_ARTIFACT_V1\n";
 static const char *kAptSafeFileSignature = "# JAILBREAKLAB_ARTIFACT_V1\n# ";
@@ -35,9 +38,11 @@ static const char *kRestrictedStateFile = "restricted-write-state-v2";
 static const char *kSymlinkStateFile = "abnormal-symlink-state-v1";
 static const char *kShadowClassMarkerPath =
     "/private/var/db/jailbreaklab/shadow-class-enabled-v1";
+static const char *kShadowTargetStatePath =
+    "/private/var/db/jailbreaklab/shadow-target-state-v2";
 static const char *kShadowFilterPath =
     "/Library/MobileSubstrate/DynamicLibraries/JailbreakLabShadow.plist";
-static const char *kShadowFilterContents =
+static const char *kLegacyTargetShadowFilterContents =
     "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
     "<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" "
     "\"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n"
@@ -58,6 +63,14 @@ static const char *kLegacyShadowFilterContents =
     "    </dict>\n"
     "</dict>\n"
     "</plist>\n";
+
+typedef struct {
+    char magic[32];
+    uint32_t version;
+    char bundle_identifier[SHADOW_BUNDLE_ID_CAPACITY];
+    char bundle_name[SHADOW_COMPONENT_CAPACITY];
+    char executable_name[SHADOW_COMPONENT_CAPACITY];
+} shadow_target_state_t;
 
 #define RESTRICTED_TARGET_COUNT 3
 
@@ -195,6 +208,9 @@ typedef struct {
     const char *operation;
     const char *root_mode;
     const char *groups;
+    const char *target_bundle_id;
+    const char *target_bundle_name;
+    const char *target_executable;
     bool dry_run;
 } options_t;
 
@@ -714,8 +730,11 @@ static bool remove_marker_file(
     size_t capacity
 ) {
     char leaf[NAME_MAX + 1];
+    errno = 0;
     int parent = open_parent_directory(path, leaf, sizeof(leaf), false);
+    int parent_error = errno;
     if (parent < 0) {
+        errno = parent_error == 0 ? EIO : parent_error;
         if (errno == ENOENT) {
             snprintf(message, capacity, "target is absent");
         } else {
@@ -804,7 +823,9 @@ static bool remove_marker_directory(const char *path, bool dry_run, char *messag
         return false;
     }
 
-    DIR *stream = fdopendir(dup(directory));
+    int stream_descriptor = dup(directory);
+    DIR *stream = stream_descriptor >= 0 ? fdopendir(stream_descriptor) : NULL;
+    if (stream == NULL && stream_descriptor >= 0) close(stream_descriptor);
     bool empty_except_marker = stream != NULL;
     if (stream != NULL) {
         struct dirent *entry;
@@ -866,7 +887,9 @@ static void prune_owned_ancestors(const char *path) {
             return;
         }
 
-        DIR *stream = fdopendir(dup(directory));
+        int stream_descriptor = dup(directory);
+        DIR *stream = stream_descriptor >= 0 ? fdopendir(stream_descriptor) : NULL;
+        if (stream == NULL && stream_descriptor >= 0) close(stream_descriptor);
         bool empty_except_marker = stream != NULL;
         if (stream != NULL) {
             struct dirent *entry;
@@ -1280,7 +1303,9 @@ static bool owned_directory_is_empty_at(int parent, const char *name) {
         return false;
     }
 
-    DIR *stream = fdopendir(dup(directory));
+    int stream_descriptor = dup(directory);
+    DIR *stream = stream_descriptor >= 0 ? fdopendir(stream_descriptor) : NULL;
+    if (stream == NULL && stream_descriptor >= 0) close(stream_descriptor);
     if (stream == NULL) {
         int saved = errno;
         close(directory);
@@ -1884,7 +1909,244 @@ static void cleanup_artifact(const artifact_t *artifact, const char *effective_p
     }
 }
 
-static int terminate_target_app(void) {
+static bool valid_shadow_bundle_identifier(const char *value) {
+    if (value == NULL) return false;
+    size_t length = strlen(value);
+    if (length < 3 || length >= SHADOW_BUNDLE_ID_CAPACITY) return false;
+    if (value[0] == '.' || value[length - 1] == '.') return false;
+    bool has_period = false;
+    for (size_t index = 0; index < length; index++) {
+        unsigned char byte = (unsigned char)value[index];
+        bool valid = (byte >= 'a' && byte <= 'z') ||
+            (byte >= 'A' && byte <= 'Z') ||
+            (byte >= '0' && byte <= '9') || byte == '.' || byte == '-';
+        if (!valid) return false;
+        if (byte == '.') has_period = true;
+    }
+    return has_period && strcmp(value, "com.securitylab.jailbreaklab") != 0;
+}
+
+static bool valid_shadow_component(const char *value, bool app_bundle) {
+    if (value == NULL) return false;
+    size_t length = strlen(value);
+    if (length == 0 || length >= SHADOW_COMPONENT_CAPACITY) return false;
+    if (strcmp(value, ".") == 0 || strcmp(value, "..") == 0) return false;
+    for (size_t index = 0; index < length; index++) {
+        unsigned char byte = (unsigned char)value[index];
+        if (byte == '/' || byte == '\\' || byte < 0x20 || byte == 0x7f) return false;
+    }
+    return !app_bundle || (length > 4 && strcmp(value + length - 4, ".app") == 0);
+}
+
+static bool valid_shadow_target(
+    const char *bundle_identifier,
+    const char *bundle_name,
+    const char *executable_name
+) {
+    return valid_shadow_bundle_identifier(bundle_identifier) &&
+        valid_shadow_component(bundle_name, true) &&
+        valid_shadow_component(executable_name, false);
+}
+
+static void initialize_shadow_target(
+    shadow_target_state_t *state,
+    const char *bundle_identifier,
+    const char *bundle_name,
+    const char *executable_name
+) {
+    memset(state, 0, sizeof(*state));
+    snprintf(state->magic, sizeof(state->magic), "%s", "JAILBREAKLAB_SHADOW_TARGET_V2");
+    state->version = 2;
+    snprintf(state->bundle_identifier, sizeof(state->bundle_identifier), "%s", bundle_identifier);
+    snprintf(state->bundle_name, sizeof(state->bundle_name), "%s", bundle_name);
+    snprintf(state->executable_name, sizeof(state->executable_name), "%s", executable_name);
+}
+
+static bool shadow_target_is_valid(const shadow_target_state_t *state) {
+    return memchr(state->magic, '\0', sizeof(state->magic)) != NULL &&
+        memchr(state->bundle_identifier, '\0', sizeof(state->bundle_identifier)) != NULL &&
+        memchr(state->bundle_name, '\0', sizeof(state->bundle_name)) != NULL &&
+        memchr(state->executable_name, '\0', sizeof(state->executable_name)) != NULL &&
+        strcmp(state->magic, "JAILBREAKLAB_SHADOW_TARGET_V2") == 0 &&
+        state->version == 2 &&
+        valid_shadow_target(
+            state->bundle_identifier, state->bundle_name, state->executable_name
+        );
+}
+
+static bool read_shadow_target_descriptor(int descriptor, shadow_target_state_t *state) {
+    struct stat information;
+    if (fstat(descriptor, &information) != 0) return false;
+    if (!S_ISREG(information.st_mode) || information.st_size != (off_t)sizeof(*state)) {
+        errno = EINVAL;
+        return false;
+    }
+    if (lseek(descriptor, 0, SEEK_SET) < 0) {
+        return false;
+    }
+    size_t received = 0;
+    while (received < sizeof(*state)) {
+        ssize_t count = read(
+            descriptor, (char *)state + received, sizeof(*state) - received
+        );
+        if (count < 0 && errno == EINTR) continue;
+        if (count <= 0) {
+            if (count == 0) errno = EIO;
+            return false;
+        }
+        received += (size_t)count;
+    }
+    if (!shadow_target_is_valid(state)) {
+        errno = EINVAL;
+        return false;
+    }
+    return true;
+}
+
+static bool load_shadow_target_state(shadow_target_state_t *state) {
+    int descriptor = open(kShadowTargetStatePath, O_RDONLY | O_NOFOLLOW | O_CLOEXEC);
+    if (descriptor < 0) return false;
+    bool valid = read_shadow_target_descriptor(descriptor, state);
+    int saved = valid ? 0 : errno;
+    close(descriptor);
+    errno = saved;
+    return valid;
+}
+
+static bool save_shadow_target_state(
+    const shadow_target_state_t *state,
+    char *message,
+    size_t capacity
+) {
+    if (!shadow_target_is_valid(state)) {
+        errno = EINVAL;
+        snprintf(message, capacity, "invalid target application identity");
+        return false;
+    }
+    char leaf[NAME_MAX + 1];
+    int parent = open_parent_directory(kShadowTargetStatePath, leaf, sizeof(leaf), true);
+    if (parent < 0) {
+        snprintf(message, capacity, "cannot open target state directory: %s", strerror(errno));
+        return false;
+    }
+    int descriptor = openat(parent, leaf, O_RDONLY | O_NOFOLLOW | O_CLOEXEC);
+    if (descriptor >= 0) {
+        shadow_target_state_t existing;
+        if (!read_shadow_target_descriptor(descriptor, &existing)) {
+            close(descriptor);
+            close(parent);
+            errno = EPERM;
+            snprintf(message, capacity, "existing target state is not owned by Jailbreak Lab");
+            return false;
+        }
+        close(descriptor);
+    } else if (errno != ENOENT) {
+        int saved = errno;
+        close(parent);
+        errno = saved;
+        snprintf(message, capacity, "cannot inspect target state: %s", strerror(errno));
+        return false;
+    }
+
+    char temporary_leaf[NAME_MAX + 1];
+    int temporary_length = snprintf(
+        temporary_leaf, sizeof(temporary_leaf), "%s.tmp.%ld", leaf, (long)getpid()
+    );
+    if (temporary_length <= 0 || (size_t)temporary_length >= sizeof(temporary_leaf)) {
+        close(parent);
+        errno = ENAMETOOLONG;
+        snprintf(message, capacity, "temporary target state name is too long");
+        return false;
+    }
+    descriptor = openat(
+        parent, temporary_leaf,
+        O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0600
+    );
+    if (descriptor < 0) {
+        int saved = errno;
+        close(parent);
+        errno = saved;
+        snprintf(message, capacity, "cannot create target state: %s", strerror(errno));
+        return false;
+    }
+    bool succeeded = write_all(descriptor, (const char *)state, sizeof(*state)) &&
+        fsync(descriptor) == 0;
+    int saved = errno;
+    close(descriptor);
+    if (succeeded && renameat(parent, temporary_leaf, parent, leaf) != 0) {
+        succeeded = false;
+        saved = errno;
+    }
+    if (!succeeded) unlinkat(parent, temporary_leaf, 0);
+    close(parent);
+    errno = saved;
+    snprintf(
+        message, capacity, succeeded ? "target state saved" : "cannot save target state: %s",
+        succeeded ? "" : strerror(errno)
+    );
+    return succeeded;
+}
+
+static bool remove_shadow_target_state(char *message, size_t capacity) {
+    char leaf[NAME_MAX + 1];
+    errno = 0;
+    int parent = open_parent_directory(kShadowTargetStatePath, leaf, sizeof(leaf), false);
+    int parent_error = errno;
+    if (parent < 0) {
+        errno = parent_error == 0 ? EIO : parent_error;
+        if (errno == ENOENT) {
+            snprintf(message, capacity, "target state is already absent");
+            return true;
+        }
+        snprintf(message, capacity, "cannot open target state directory: %s", strerror(errno));
+        return false;
+    }
+    int descriptor = openat(parent, leaf, O_RDONLY | O_NOFOLLOW | O_CLOEXEC);
+    if (descriptor < 0 && errno == ENOENT) {
+        close(parent);
+        snprintf(message, capacity, "target state is already absent");
+        return true;
+    }
+    shadow_target_state_t state;
+    bool owned = descriptor >= 0 && read_shadow_target_descriptor(descriptor, &state);
+    if (descriptor >= 0) close(descriptor);
+    if (!owned) {
+        close(parent);
+        errno = EPERM;
+        snprintf(message, capacity, "existing target state is not owned by Jailbreak Lab");
+        return false;
+    }
+    bool removed = unlinkat(parent, leaf, 0) == 0;
+    int saved = errno;
+    close(parent);
+    errno = saved;
+    snprintf(
+        message, capacity, removed ? "target state removed" : "cannot remove target state: %s",
+        removed ? "" : strerror(errno)
+    );
+    return removed;
+}
+
+static bool build_shadow_filter_contents(
+    const shadow_target_state_t *target,
+    char *contents,
+    size_t capacity
+) {
+    if (target == NULL || !shadow_target_is_valid(target)) return false;
+    int length = snprintf(
+        contents, capacity,
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+        "<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" "
+        "\"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n"
+        "<plist version=\"1.0\"><dict><key>Filter</key><dict><key>Bundles</key>"
+        "<array><string>%s</string></array></dict></dict></plist>\n",
+        target->bundle_identifier
+    );
+    return length > 0 && (size_t)length < capacity;
+}
+
+static int terminate_target_app(const shadow_target_state_t *target) {
+    if (target == NULL || !shadow_target_is_valid(target)) return -1;
     typedef int (*process_list_function_t)(void *, int);
     typedef int (*process_path_function_t)(int, void *, uint32_t);
     process_list_function_t process_list =
@@ -1905,8 +2167,15 @@ static int terminate_target_app(void) {
     int process_count = process_list(process_ids, (int)buffer_size);
     if (process_count < 0) process_count = 0;
     if (process_count > process_capacity) process_count = process_capacity;
-    static const char target_suffix[] =
-        "/BaiduWalletDemo.app/BaiduWalletDemo";
+    char target_suffix[SHADOW_COMPONENT_CAPACITY * 2 + 3];
+    int suffix_length_value = snprintf(
+        target_suffix, sizeof(target_suffix), "/%s/%s",
+        target->bundle_name, target->executable_name
+    );
+    if (suffix_length_value <= 0 || (size_t)suffix_length_value >= sizeof(target_suffix)) {
+        free(process_ids);
+        return -1;
+    }
     int terminated = 0;
     for (int index = 0; index < process_count; index++) {
         pid_t process_id = process_ids[index];
@@ -1941,12 +2210,25 @@ static int terminate_target_app(void) {
 
 static bool update_shadow_filter(
     const char *path,
+    const shadow_target_state_t *current_target,
+    const shadow_target_state_t *desired_target,
     bool enabled,
     bool *changed,
     char *message,
     size_t capacity
 ) {
     *changed = false;
+    char desired_contents[SHADOW_FILTER_CAPACITY] = {0};
+    char current_contents[SHADOW_FILTER_CAPACITY] = {0};
+    bool desired_valid = desired_target != NULL &&
+        build_shadow_filter_contents(desired_target, desired_contents, sizeof(desired_contents));
+    bool current_valid = current_target != NULL &&
+        build_shadow_filter_contents(current_target, current_contents, sizeof(current_contents));
+    if (enabled && !desired_valid) {
+        errno = EINVAL;
+        snprintf(message, capacity, "invalid target application identity");
+        return false;
+    }
     char leaf[NAME_MAX + 1];
     int parent = open_parent_directory(path, leaf, sizeof(leaf), false);
     if (parent < 0) {
@@ -1956,22 +2238,25 @@ static bool update_shadow_filter(
 
     int descriptor = openat(parent, leaf, O_RDWR | O_NOFOLLOW | O_CLOEXEC);
     if (descriptor >= 0) {
-        bool current = fd_has_exact_signature(descriptor, kShadowFilterContents);
-        bool legacy = !current &&
+        bool desired = desired_valid && fd_has_exact_signature(descriptor, desired_contents);
+        bool previous = !desired && current_valid &&
+            fd_has_exact_signature(descriptor, current_contents);
+        bool legacy_target = !desired && !previous &&
+            fd_has_exact_signature(descriptor, kLegacyTargetShadowFilterContents);
+        bool legacy_wide = !desired && !previous && !legacy_target &&
             fd_has_exact_signature(descriptor, kLegacyShadowFilterContents);
-        if (!current && !legacy) {
+        if (!desired && !previous && !legacy_target && !legacy_wide) {
             close(descriptor);
             close(parent);
             errno = EPERM;
             snprintf(message, capacity, "existing injection filter is not owned by Jailbreak Lab");
             return false;
         }
-        if (enabled && legacy) {
+        if (enabled && !desired) {
             bool migrated = ftruncate(descriptor, 0) == 0 &&
                 lseek(descriptor, 0, SEEK_SET) == 0 &&
-                write_all(
-                    descriptor, kShadowFilterContents, strlen(kShadowFilterContents)
-                ) && fsync(descriptor) == 0;
+                write_all(descriptor, desired_contents, strlen(desired_contents)) &&
+                fsync(descriptor) == 0;
             int saved = errno;
             close(descriptor);
             close(parent);
@@ -1981,7 +2266,7 @@ static bool update_shadow_filter(
                 return false;
             }
             *changed = true;
-            snprintf(message, capacity, "legacy injection filter narrowed to target app");
+            snprintf(message, capacity, "injection filter updated for selected app");
             return true;
         }
         close(descriptor);
@@ -2021,7 +2306,7 @@ static bool update_shadow_filter(
         return false;
     }
     bool written = write_all(
-        descriptor, kShadowFilterContents, strlen(kShadowFilterContents)
+        descriptor, desired_contents, strlen(desired_contents)
     ) && fsync(descriptor) == 0;
     int saved = errno;
     close(descriptor);
@@ -2037,7 +2322,14 @@ static bool update_shadow_filter(
     return true;
 }
 
-static void set_shadow_class_state(bool enabled, bool use_rootless, bool dry_run) {
+static void set_shadow_class_state(
+    bool enabled,
+    bool use_rootless,
+    const char *bundle_identifier,
+    const char *bundle_name,
+    const char *executable_name,
+    bool dry_run
+) {
     char filter_path[MAX_PATH_LENGTH];
     if (!effective_path_for_layout(
         kShadowFilterPath, use_rootless, filter_path, sizeof(filter_path)
@@ -2045,6 +2337,36 @@ static void set_shadow_class_state(bool enabled, bool use_rootless, bool dry_run
         emit_result("ShadowRuleset", kShadowFilterPath, "failed", "filter path mapping failed");
         return;
     }
+    shadow_target_state_t desired_target;
+    shadow_target_state_t stored_target;
+    bool has_desired_target = valid_shadow_target(
+        bundle_identifier, bundle_name, executable_name
+    );
+    bool has_stored_target = load_shadow_target_state(&stored_target);
+    struct stat target_state_information;
+    bool target_state_exists = lstat(
+        kShadowTargetStatePath, &target_state_information
+    ) == 0;
+    if (target_state_exists && !has_stored_target) {
+        emit_result(
+            "ShadowRuleset", kShadowTargetStatePath, "protected",
+            "existing target state is not owned by Jailbreak Lab"
+        );
+        return;
+    }
+    if (enabled && !has_desired_target && !has_stored_target) {
+        emit_result("ShadowRuleset", filter_path, "failed", "a valid target app is required");
+        return;
+    }
+    if (has_desired_target) {
+        initialize_shadow_target(
+            &desired_target, bundle_identifier, bundle_name, executable_name
+        );
+    }
+    shadow_target_state_t *active_target = enabled && has_desired_target
+        ? &desired_target
+        : (has_stored_target ? &stored_target : (has_desired_target ? &desired_target : NULL));
+
     if (dry_run) {
         emit_result(
             "ShadowRuleset", filter_path, "planned",
@@ -2056,41 +2378,16 @@ static void set_shadow_class_state(bool enabled, bool use_rootless, bool dry_run
     }
 
     char message[1024];
-    struct stat marker_information;
-    bool marker_existed = lstat(kShadowClassMarkerPath, &marker_information) == 0;
-    bool marker_ready = enabled
-        ? create_marker_file(
-            kShadowClassMarkerPath, false, false, message, sizeof(message)
-        )
-        : remove_marker_file(
-            kShadowClassMarkerPath, false, false, message, sizeof(message)
-        );
-    if (!enabled && !marker_ready && errno == ENOENT) marker_ready = true;
-    if (!marker_ready) {
-        emit_result(
-            "ShadowRuleset", kShadowClassMarkerPath,
-            errno == EPERM || errno == EEXIST ? "protected" : "failed", message
-        );
-        return;
-    }
-
     bool changed = false;
     if (!update_shadow_filter(
-        filter_path, enabled, &changed, message, sizeof(message)
+        filter_path,
+        has_stored_target ? &stored_target : NULL,
+        active_target,
+        enabled,
+        &changed,
+        message,
+        sizeof(message)
     )) {
-        char rollback_message[1024];
-        if (enabled && !marker_existed) {
-            remove_marker_file(
-                kShadowClassMarkerPath, false, false,
-                rollback_message, sizeof(rollback_message)
-            );
-            prune_owned_ancestors(kShadowClassMarkerPath);
-        } else if (!enabled && marker_existed) {
-            create_marker_file(
-                kShadowClassMarkerPath, false, false,
-                rollback_message, sizeof(rollback_message)
-            );
-        }
         emit_result(
             "ShadowRuleset", filter_path,
             errno == EPERM ? "protected" : "failed", message
@@ -2098,8 +2395,43 @@ static void set_shadow_class_state(bool enabled, bool use_rootless, bool dry_run
         return;
     }
 
-    if (!enabled) prune_owned_ancestors(kShadowClassMarkerPath);
-    int terminated = terminate_target_app();
+    if (enabled && !save_shadow_target_state(active_target, message, sizeof(message))) {
+        char rollback_message[1024];
+        bool rollback_changed = false;
+        update_shadow_filter(
+            filter_path,
+            active_target,
+            has_stored_target ? &stored_target : NULL,
+            has_stored_target,
+            &rollback_changed,
+            rollback_message,
+            sizeof(rollback_message)
+        );
+        emit_result(
+            "ShadowRuleset", kShadowTargetStatePath,
+            errno == EPERM ? "protected" : "failed", message
+        );
+        return;
+    }
+    if (!enabled && !remove_shadow_target_state(message, sizeof(message))) {
+        emit_result(
+            "ShadowRuleset", kShadowTargetStatePath,
+            errno == EPERM ? "protected" : "failed", message
+        );
+        return;
+    }
+
+    struct stat legacy_marker;
+    if (lstat(kShadowClassMarkerPath, &legacy_marker) == 0) {
+        char cleanup_message[1024];
+        if (remove_marker_file(
+            kShadowClassMarkerPath, false, false, cleanup_message, sizeof(cleanup_message)
+        )) {
+            prune_owned_ancestors(kShadowClassMarkerPath);
+        }
+    }
+
+    int terminated = active_target == NULL ? 0 : terminate_target_app(active_target);
     if (terminated > 0) {
         snprintf(
             message, sizeof(message),
@@ -2136,6 +2468,15 @@ static bool parse_options(int argument_count, char **arguments, options_t *optio
             options->root_mode = arguments[++index];
         } else if (strcmp(arguments[index], "--groups") == 0 && index + 1 < argument_count) {
             options->groups = arguments[++index];
+        } else if (strcmp(arguments[index], "--target-bundle-id") == 0 &&
+            index + 1 < argument_count) {
+            options->target_bundle_id = arguments[++index];
+        } else if (strcmp(arguments[index], "--target-bundle-name") == 0 &&
+            index + 1 < argument_count) {
+            options->target_bundle_name = arguments[++index];
+        } else if (strcmp(arguments[index], "--target-executable") == 0 &&
+            index + 1 < argument_count) {
+            options->target_executable = arguments[++index];
         } else if (strcmp(arguments[index], "--dry-run") == 0) {
             options->dry_run = true;
         } else if (strcmp(arguments[index], "--live") == 0) {
@@ -2160,7 +2501,24 @@ static bool parse_options(int argument_count, char **arguments, options_t *optio
         (strcmp(options->root_mode, "auto") == 0 ||
          strcmp(options->root_mode, "rootful") == 0 ||
          strcmp(options->root_mode, "rootless") == 0);
-    return operation_valid && root_mode_valid && valid_group_list(options->groups);
+    bool any_target = options->target_bundle_id != NULL ||
+        options->target_bundle_name != NULL || options->target_executable != NULL;
+    bool complete_target = options->target_bundle_id != NULL &&
+        options->target_bundle_name != NULL && options->target_executable != NULL &&
+        valid_shadow_target(
+            options->target_bundle_id,
+            options->target_bundle_name,
+            options->target_executable
+        );
+    bool enabling_objc = options->operation != NULL &&
+        strcmp(options->operation, "enable-objc-class") == 0;
+    bool disabling_objc = options->operation != NULL &&
+        strcmp(options->operation, "disable-objc-class") == 0;
+    bool target_valid_for_operation = enabling_objc
+        ? (!any_target || complete_target)
+        : (disabling_objc ? (!any_target || complete_target) : !any_target);
+    return operation_valid && root_mode_valid && valid_group_list(options->groups) &&
+        target_valid_for_operation;
 }
 
 static bool caller_is_expected_app(void) {
@@ -2243,6 +2601,9 @@ int main(int argument_count, char **arguments) {
         set_shadow_class_state(
             strcmp(options.operation, "enable-objc-class") == 0,
             use_rootless,
+            options.target_bundle_id,
+            options.target_bundle_name,
+            options.target_executable,
             options.dry_run
         );
         return 0;
